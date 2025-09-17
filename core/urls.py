@@ -11,11 +11,8 @@ from rest_framework_simplejwt.views import (
 # ----------------- Swagger / OpenAPI -----------------
 schema_view = get_schema_view(
    openapi.Info(
-      title="Courses API",
+      title="Omuzon API",
       default_version='v1',
-      description="API платформы курсов с JWT авторизацией",
-      contact=openapi.Contact(email="contact@example.com"),
-      license=openapi.License(name="MIT License"),
    ),
    public=True,
    permission_classes=(permissions.AllowAny,),
