@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model, authenticate
-from .models import EmailVerification
+from .models import EmailVerification ,Profile
 
 User = get_user_model()
 
@@ -103,3 +103,13 @@ class LoginSerializer(serializers.Serializer):
 
         attrs['user'] = user
         return attrs
+
+
+  
+
+class ProfileSerializer(serializers.ModelSerializer):
+    user = serializers.StringRelatedField(read_only=True)  # будет показывать username
+
+    class Meta:
+        model = Profile
+        fields = ['id', 'user', 'avatar', 'bio']

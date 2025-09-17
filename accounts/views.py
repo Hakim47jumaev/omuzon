@@ -71,3 +71,16 @@ class LogoutView(APIView):
         logout(request)
         return Response({"message": "Logged out (client should discard JWT)"}, status=status.HTTP_200_OK)
 
+
+
+from rest_framework import generics, permissions
+from .models import Profile
+from .serializers import ProfileSerializer
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        # всегда возвращаем профиль текущего юзера
+        return self.request.user.profile
