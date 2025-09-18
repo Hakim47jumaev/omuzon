@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import logout
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.parsers import MultiPartParser, FormParser
 
 from .serializers import (
     RegisterSerializer,
@@ -77,9 +78,11 @@ from rest_framework import generics, permissions
 from .models import Profile
 from .serializers import ProfileSerializer
 
+# ----------------- Profile -----------------
 class ProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes=[MultiPartParser,FormParser]
 
     def get_object(self):
         # всегда возвращаем профиль текущего юзера

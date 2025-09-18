@@ -42,7 +42,8 @@ class EmailVerification(models.Model):
         ]
 
     def is_expired(self):
-        return timezone.now() > self.created_at + timezone.timedelta(minutes=10)
+         
+        return False
 
     def __str__(self):
         return f"{self.email} - {self.verification_code}"

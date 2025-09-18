@@ -76,26 +76,20 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 # ----------------- Login Serializer -----------------
+
+from django.contrib.auth import authenticate
+ 
+
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=False)
-    username = serializers.CharField(required=False)
+    username = serializers.CharField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        email = attrs.get('email')
         username = attrs.get('username')
         password = attrs.get('password')
 
-        if not email and not username:
-            raise serializers.ValidationError("Provide either email or username")
-
-        # Аутентификация через email или username
-        if email:
-            try:
-                user_obj = User.objects.get(email=email)
-                username = user_obj.username
-            except User.DoesNotExist:
-                raise serializers.ValidationError("Invalid credentials")
+        if not username or not password:
+            raise serializers.ValidationError("Username and password are required")
 
         user = authenticate(username=username, password=password)
         if not user:
@@ -103,6 +97,7 @@ class LoginSerializer(serializers.Serializer):
 
         attrs['user'] = user
         return attrs
+
 
 
   
@@ -113,3 +108,4 @@ class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = Profile
         fields = ['id', 'user', 'avatar', 'bio']
+        read_only_fields=['id','user']
