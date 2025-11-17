@@ -1,111 +1,122 @@
+# accounts/serializers.py
 from rest_framework import serializers
-from django.contrib.auth import get_user_model, authenticate
-from .models import EmailVerification ,Profile
+from django.contrib.auth import authenticate, get_user_model
+from .models import EmailVerification, Profile
+from django.contrib.auth.hashers import make_password
+from django.utils import timezone
+from datetime import timedelta
+from django.db import models
 
 User = get_user_model()
 
-# ----------------- Register -----------------
+
 class RegisterSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
     email = serializers.EmailField()
-    username = serializers.CharField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, min_length=6)
 
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Email already exists")
+            raise serializers.ValidationError("This email is already registered.")
+        if EmailVerification.objects.filter(email=value, is_used=False).exists():
+            raise serializers.ValidationError("Check your email — code already sent.")
         return value
 
     def validate_username(self, value):
-        if value and User.objects.filter(username=value).exists():
-            raise serializers.ValidationError("Username already exists")
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("This username is taken.")
         return value
 
     def create(self, validated_data):
+        EmailVerification.objects.filter(email=validated_data['email']).delete()
+
         code = EmailVerification.generate_code()
-        ev, _ = EmailVerification.objects.update_or_create(
+        ev = EmailVerification.objects.create(
             email=validated_data['email'],
-            defaults={'verification_code': code, 'is_used': False}
+            verification_code=code,
+            temp_username=validated_data['username'],
+            temp_password=validated_data['password'],  # ← ЧИСТЫЙ ПАРОЛЬ!
+            created_at=timezone.now(),
         )
         ev.send_code()
         return ev
 
 
-# ----------------- Verify -----------------
 class VerifyCodeSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    verification_code = serializers.CharField(max_length=6)
-    username = serializers.CharField(required=False, allow_blank=True)
-    password = serializers.CharField(write_only=True)
+    verification_code = serializers.CharField(max_length=4)
 
     def validate(self, attrs):
         try:
-            ev = EmailVerification.objects.get(email=attrs['email'], is_used=False)
+            ev = EmailVerification.objects.get(
+                email=attrs['email'],
+                verification_code=attrs['verification_code'],
+                is_used=False
+            )
         except EmailVerification.DoesNotExist:
-            raise serializers.ValidationError("No verification code found or already used")
-
-        if ev.verification_code != attrs['verification_code']:
-            raise serializers.ValidationError("Invalid verification code")
+            raise serializers.ValidationError("Invalid or expired code.")
 
         if ev.is_expired():
-            raise serializers.ValidationError("Verification code expired")
+            raise serializers.ValidationError("Verification code has expired.")
 
         attrs['email_verification'] = ev
         return attrs
 
+# accounts/serializers.py
     def create(self, validated_data):
-        ev = validated_data.pop('email_verification')
-        username = validated_data.get('username') or validated_data['email'].split('@')[0]
+            ev = validated_data['email_verification']
 
-        user = User.objects.create_user(
-            email=validated_data['email'],
-            username=username,
-            password=validated_data['password']
-        )
+            user = User.objects.create_user(
+                username=ev.temp_username,
+                email=ev.email,
+                password=None  # не передаём
+            )
+            user.set_password(ev.temp_password)  # ← правильный хэш
+            user.save()
 
-        ev.is_used = True
-        ev.save()
+            ev.is_used = True
+            ev.temp_username = ''
+            ev.temp_password = ''
+            ev.save()
 
-        return user
+            return user
 
 
-# ----------------- User Serializer -----------------
+class LoginSerializer(serializers.Serializer):
+    login = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        login = attrs['login']
+        password = attrs['password']
+
+        try:
+            # Ищем пользователя по username ИЛИ email
+            user = User.objects.get(
+                models.Q(username=login) | models.Q(email__iexact=login)
+            )
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Invalid login or password.")
+
+        # Проверяем пароль напрямую — это 100% работает
+        if not user.check_password(password):
+            raise serializers.ValidationError("Invalid login or password.")
+
+        if not user.is_active:
+            raise serializers.ValidationError("Account is disabled.")
+
+        attrs['user'] = user
+        return attrs
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'email', 'username', 'first_name', 'last_name']
 
 
-# ----------------- Login Serializer -----------------
-
-from django.contrib.auth import authenticate
- 
-
-class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    password = serializers.CharField(write_only=True)
-
-    def validate(self, attrs):
-        username = attrs.get('username')
-        password = attrs.get('password')
-
-        if not username or not password:
-            raise serializers.ValidationError("Username and password are required")
-
-        user = authenticate(username=username, password=password)
-        if not user:
-            raise serializers.ValidationError("Invalid credentials")
-
-        attrs['user'] = user
-        return attrs
-
-
-
-  
-
 class ProfileSerializer(serializers.ModelSerializer):
-    user = serializers.StringRelatedField(read_only=True)  # будет показывать username
-
+    user = serializers.StringRelatedField(read_only=True)
     class Meta:
         model = Profile
         fields = ['id', 'user', 'avatar', 'bio']
-        read_only_fields=['id','user']
+        read_only_fields = ['id', 'user']
