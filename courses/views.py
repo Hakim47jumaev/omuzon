@@ -5,7 +5,6 @@ from django.shortcuts import get_object_or_404
 from .models import Course, Module, Task, Enrollment
 from .serializers import CourseSerializer, ModuleSerializer, TaskSerializer, EnrollmentSerializer
 
-
 # ----------------- Custom Permission -----------------
 class IsOwnerOrReadOnly(permissions.BasePermission):
     """
@@ -117,30 +116,74 @@ class TaskDeleteView(generics.DestroyAPIView):
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
+from rest_framework import serializers
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
-# ----------------- Enrollment -----------------
+
 class EnrollView(APIView):
     """
     Запись студента на курс
+    POST /enroll/
+    {
+        "course_id": 5
+    }
     """
     permission_classes = [permissions.IsAuthenticated]
 
+    # Красивая схема для Swagger
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['course_id'],
+            properties={
+                'course_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='ID курса, на который хотите записаться'
+                )
+            }
+        ),
+        responses={
+            201: openapi.Response(
+                description='Успешно записан на курс',
+                schema=EnrollmentSerializer()
+            ),
+            200: openapi.Response(
+                description='Вы уже записаны на этот курс',
+                examples={'application/json': {'message': 'You are already enrolled in this course'}}
+            ),
+            400: 'course_id обязателен',
+            404: 'Курс не найден'
+        },
+        operation_description="Записывает текущего пользователя на курс. Если уже записан — возвращает 200 с сообщением."
+    )
     def post(self, request):
-        user = request.user
         course_id = request.data.get('course_id')
-        if not course_id:
-            return Response({'error': 'course_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not course_id:
+            return Response(
+                {'error': 'course_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Проверяем, существует ли курс
         course = get_object_or_404(Course, id=course_id)
-        enrollment, created = Enrollment.objects.get_or_create(user=user, course=course)
+
+        # Пытаемся создать запись
+        enrollment, created = Enrollment.objects.get_or_create(
+            user=request.user,
+            course=course
+        )
+
         serializer = EnrollmentSerializer(enrollment)
 
         if created:
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
-            return Response({'message': 'You are already enrolled'}, status=status.HTTP_200_OK)
-
-
+            return Response(
+                {'message': 'You are already enrolled in this course'},
+                status=status.HTTP_200_OK
+            )
 class MyEnrolledCoursesView(APIView):
     """
     Список курсов, на которые пользователь записан
