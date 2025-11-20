@@ -12,9 +12,10 @@ from courses.models import Task
 import google.generativeai as genai
 import json
 import re
+from decouple import config
 
-genai.configure(api_key="AIzaSyApFO-IScdcYd5ip0hF9cCfYDhkTUPUck0")
-model = genai.GenerativeModel("gemini-2.5-flash")  # ← ФИНАЛЬНОЕ НАЗВАНИЕ! 100% работает
+genai.configure(api_key=config('GEMINI_API_KEY'))
+model = genai.GenerativeModel("gemini-2.5-flash")   
 
 def safe_json_gemini(prompt: str) -> dict:
     try:
