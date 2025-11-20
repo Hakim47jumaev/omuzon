@@ -1,29 +1,27 @@
+# courses/urls.py
 from django.urls import path
-from . import views
+from .views import (
+    CourseListView,
+    CourseDetailView,
+    MyEnrolledCoursesView,
+    ModuleDetailView,
+    TaskDetailView,
+    EnrollView,
+    CourseCreateView,
+    CourseUpdateView,
+    CourseDeleteView,
+)
 
 urlpatterns = [
-    # ----------------- Courses -----------------
-    path('courses/', views.CourseListView.as_view(), name='course-list'),
-    path('courses/<int:pk>/', views.CourseDetailView.as_view(), name='course-detail'),
-    path('courses/create/', views.CourseCreateView.as_view(), name='course-create'),
-    path('courses/<int:pk>/update/', views.CourseUpdateView.as_view(), name='course-update'),
-    path('courses/<int:pk>/delete/', views.CourseDeleteView.as_view(), name='course-delete'),
+    path('courses/', CourseListView.as_view(), name='course-list'),
+    path('courses/<int:pk>/', CourseDetailView.as_view(), name='course-detail'),
+    path('courses/enrolled/', MyEnrolledCoursesView.as_view(), name='my-courses'),
+    path('courses/enroll/', EnrollView.as_view(), name='enroll'),
 
-    # ----------------- Modules -----------------
-    path('modules/<int:pk>/', views.ModuleDetailView.as_view(), name='module-detail'),
-    path('modules/create/', views.ModuleCreateView.as_view(), name='module-create'),
-    path('modules/<int:pk>/update/', views.ModuleUpdateView.as_view(), name='module-update'),
-    path('modules/<int:pk>/delete/', views.ModuleDeleteView.as_view(), name='module-delete'),
+    path('modules/<int:pk>/', ModuleDetailView.as_view(), name='module-detail'),
+    path('tasks/<int:pk>/', TaskDetailView.as_view(), name='task-detail'),
 
-    # ----------------- Tasks -----------------
-    path('tasks/<int:pk>/', views.TaskDetailView.as_view(), name='task-detail'),
-    path('tasks/create/', views.TaskCreateView.as_view(), name='task-create'),
-    path('tasks/<int:pk>/update/', views.TaskUpdateView.as_view(), name='task-update'),
-    path('tasks/<int:pk>/delete/', views.TaskDeleteView.as_view(), name='task-delete'),
-
-    # ----------------- Enrollment -----------------
-    path('enroll/', views.EnrollView.as_view(), name='enroll'),
-
-    # ----------------- User Courses -----------------
-    path('my-courses/', views.MyEnrolledCoursesView.as_view(), name='my-enrolled-courses'),
+    path('courses/create/', CourseCreateView.as_view(), name='course-create'),
+    path('courses/<int:pk>/update/', CourseUpdateView.as_view(), name='course-update'),
+    path('courses/<int:pk>/delete/', CourseDeleteView.as_view(), name='course-delete'),
 ]
