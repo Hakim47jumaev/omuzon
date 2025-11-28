@@ -1,9 +1,10 @@
-# courses/views.py — ФИНАЛЬНАЯ ВЕРСИЯ (копируй целиком)
+# courses/views.py — ФИНАЛЬНАЯ ВЕРСИЯ 
 from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-
+from django.utils import timezone
+from rest_framework import filters
 from .models import Course, Module, Task, Enrollment
 from .serializers import (
     LightCourseSerializer,        # ← новый лёгкий
@@ -27,6 +28,10 @@ class CourseListView(generics.ListAPIView):
     queryset = Course.objects.all()
     serializer_class = LightCourseSerializer
     permission_classes = [permissions.AllowAny]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['title', 'description']           # ← поиск по названию и описанию
+    ordering_fields = ['start_time', 'title', 'enrolled_count']
+    ordering = ['start_time']
 
 
 # ==================== ДЕТАЛЬНЫЙ КУРС (с модулями, прогрессом) ====================
@@ -34,6 +39,36 @@ class CourseDetailView(generics.RetrieveAPIView):
     queryset = Course.objects.all()
     permission_classes = [permissions.AllowAny]
 
+    def get_queryset(self):
+        return Course.objects.filter(start_time__lte=timezone.now())
+          
+
+    
+    def retrieve(self, request, *args, **kwargs):
+        try:
+            instance = self.get_object()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        except Course.DoesNotExist:
+            # Проверяем, существует ли курс вообще, но ещё не начался
+            try:
+                course = Course.objects.get(pk=kwargs['pk'])
+                if course.start_time > timezone.now():
+                    return Response(
+                        {
+                            "detail": "Курс ещё не начался. Доступ будет открыт после даты начала.",
+                            "start_time": course.start_time,
+                            "title": course.title
+                        },
+                        status=status.HTTP_200_OK
+                    )
+            except Course.DoesNotExist:
+                pass  # действительно не существует
+
+            return Response(
+                {"detail": "Курс не найден."},
+                status=status.HTTP_404_NOT_FOUND
+            )
     def get_serializer_class(self):
         return DetailedCourseSerializer
 
@@ -68,7 +103,7 @@ class TaskDetailView(generics.RetrieveAPIView):
 
 
 # ==================== ЗАПИСЬ НА КУРС ====================
-# courses/views.py — замени только этот класс
+# courses/views.py  
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 

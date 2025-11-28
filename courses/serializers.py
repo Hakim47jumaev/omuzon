@@ -97,7 +97,7 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
         return round((solved / total) * 100, 1)
 
 
-# ===================== ЗАПИСЬ НА КУРС (если нужно в ответе) =====================
+# ===================== ЗАПИСЬ НА КУРС =====================
 class EnrollmentSerializer(serializers.ModelSerializer):
     course_title = serializers.CharField(source='course.title', read_only=True)
 

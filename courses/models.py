@@ -16,7 +16,7 @@ class Course(models.Model):
     
     @property
     def is_active(self):
-        return self.start_time <= timezone.now()
+        return self.start_time is not None and self.start_time <= timezone.now()
     def __str__(self):
         return self.title
 

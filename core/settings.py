@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'accounts',
     'courses',
     'submissions',
+    'django_filters'
 ]
 
 # Middleware — CORS должен идти сразу после SessionMiddleware
@@ -105,6 +106,11 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',      # ← для поиска
+        'rest_framework.filters.OrderingFilter',
+    ]
 }
 
 SIMPLE_JWT = {
