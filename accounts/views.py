@@ -25,7 +25,7 @@ class RegisterView(generics.GenericAPIView):
         serializer.save()
         return Response({"message": "Verification code sent to your email."})
 
-
+ 
 class VerifyCodeView(generics.GenericAPIView):
     serializer_class = VerifyCodeSerializer
     permission_classes = [permissions.AllowAny]
@@ -33,10 +33,16 @@ class VerifyCodeView(generics.GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+
+        user = serializer.save()  # ← пользователь создан
+
+        refresh = RefreshToken.for_user(user)
+
         return Response({
             "message": "Account created successfully.",
-            "user": UserSerializer(user).data
+            "user": UserSerializer(user).data,
+            "access": str(refresh.access_token),
+            "refresh": str(refresh)
         }, status=status.HTTP_201_CREATED)
 
 

@@ -84,7 +84,7 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
             user=user,
             task__module__course=obj,
             status='accepted'  # ← у тебя в модели Submission есть поле status
-        ).distinct().count()
+        ).values('task').distinct().count()
 
     def get_total_tasks(self, obj):
         return Task.objects.filter(module__course=obj).count()
