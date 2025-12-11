@@ -30,6 +30,8 @@ INSTALLED_APPS = [
     'django_filters'
 ]
 
+GOOGLE_CLIENT_ID = "847231963218-dphsmff28lgnupm4bdg7iojmtvqj9qa1.apps.googleusercontent.com"
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
