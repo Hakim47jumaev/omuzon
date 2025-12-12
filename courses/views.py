@@ -6,6 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import filters
 from .models import Course, Module, Task, Enrollment
+from submissions.models import Submission
 from .serializers import (
     LightCourseSerializer,        # ← новый лёгкий
     DetailedCourseSerializer,      # ← новый тяжёлый с модулями и прогрессом
@@ -40,17 +41,15 @@ class CourseDetailView(generics.RetrieveAPIView):
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return Course.objects.filter(start_time__lte=timezone.now())
+        return Course.objects.filter(start_time__lte=timezone.now()).prefetch_related('modules__tasks')
           
 
     
     def retrieve(self, request, *args, **kwargs):
+        from django.http import Http404
         try:
             instance = self.get_object()
-            serializer = self.get_serializer(instance)
-            return Response(serializer.data)
-        except Course.DoesNotExist:
-            # Проверяем, существует ли курс вообще, но ещё не начался
+        except Http404:
             try:
                 course = Course.objects.get(pk=kwargs['pk'])
                 if course.start_time > timezone.now():
@@ -63,12 +62,23 @@ class CourseDetailView(generics.RetrieveAPIView):
                         status=status.HTTP_200_OK
                     )
             except Course.DoesNotExist:
-                pass  # действительно не существует
+                pass
+            return Response({"detail": "Курс не найден."}, status=status.HTTP_404_NOT_FOUND)
 
-            return Response(
-                {"detail": "Курс не найден."},
-                status=status.HTTP_404_NOT_FOUND
+        submissions_map = {}
+        if request.user.is_authenticated:
+            subs = (
+                Submission.objects.filter(user=request.user, task__module__course=instance)
+                .select_related('task')
+                .order_by('created_at')
             )
+            for s in subs:
+                submissions_map.setdefault(s.task_id, []).append(s)
+
+        base_context = self.get_serializer_context()
+        base_context["user_submissions_by_task"] = submissions_map
+        serializer = self.get_serializer(instance, context=base_context)
+        return Response(serializer.data)
     def get_serializer_class(self):
         return DetailedCourseSerializer
 

@@ -1,7 +1,7 @@
 # courses/serializers.py
 from rest_framework import serializers
 from .models import Course, Module, Task, Enrollment
-from submissions.models import Submission  # ← важно для подсчёта решённых задач
+from submissions.models import Submission
 
 
 # ===================== ЛЁГКИЙ СЕРИАЛИЗАТОР ДЛЯ СПИСКОВ =====================
@@ -24,20 +24,71 @@ class LightCourseSerializer(serializers.ModelSerializer):
 # ===================== ЗАДАЧА =====================
 class TaskSerializer(serializers.ModelSerializer):
     is_solved = serializers.SerializerMethodField()
+    last_submission = serializers.SerializerMethodField()
+    my_submissions = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
-        fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved']
+        fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved', 'last_submission', 'my_submissions']
 
     def get_is_solved(self, obj):
         user = self.context['request'].user
         if not user.is_authenticated:
             return False
-        return Submission.objects.filter(
-            user=user,
-            task=obj,
-            status='accepted'
-        ).exists()
+        submissions_map = self.context.get('user_submissions_by_task')
+        if submissions_map is not None:
+            subs = submissions_map.get(obj.id, [])
+            return any(s.status == 'accepted' for s in subs)
+        return Submission.objects.filter(user=user, task=obj, status='accepted').exists()
+
+    def get_last_submission(self, obj):
+        user = self.context['request'].user
+        if not user.is_authenticated:
+            return None
+        submissions_map = self.context.get('user_submissions_by_task')
+        if submissions_map is not None:
+            subs = submissions_map.get(obj.id, [])
+            if not subs:
+                return None
+            last = subs[-1]
+        else:
+            last = (
+                Submission.objects.filter(user=user, task=obj)
+                .order_by('created_at')
+                .last()
+            )
+            if last is None:
+                return None
+        return {
+            'id': last.id,
+            'status': last.status,
+            'feedback': last.feedback,
+            'created_at': last.created_at,
+            'code': last.code,
+        }
+
+    def get_my_submissions(self, obj):
+        user = self.context['request'].user
+        if not user.is_authenticated:
+            return []
+        submissions_map = self.context.get('user_submissions_by_task')
+        if submissions_map is not None:
+            subs = submissions_map.get(obj.id, [])
+        else:
+            subs = list(
+                Submission.objects.filter(user=user, task=obj)
+                .order_by('created_at')
+            )
+        return [
+            {
+                'id': s.id,
+                'status': s.status,
+                'feedback': s.feedback,
+                'created_at': s.created_at,
+                'code': s.code,
+            }
+            for s in subs
+        ]
 
 # ===================== МОДУЛЬ С ЗАДАЧАМИ =====================
 class ModuleSerializer(serializers.ModelSerializer):
@@ -80,14 +131,22 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         if not user.is_authenticated:
             return 0
-        return Submission.objects.filter(
-            user=user,
-            task__module__course=obj,
-            status='accepted'  # ← у тебя в модели Submission есть поле status
-        ).values('task').distinct().count()
+        submissions_map = self.context.get('user_submissions_by_task', {})
+        accepted_task_ids = set()
+        for task_id, subs in submissions_map.items():
+            if any(s.status == 'accepted' for s in subs):
+                accepted_task_ids.add(task_id)
+        course_task_ids = set()
+        for m in obj.modules.all():
+            for t in m.tasks.all():
+                course_task_ids.add(t.id)
+        return len(accepted_task_ids & course_task_ids)
 
     def get_total_tasks(self, obj):
-        return Task.objects.filter(module__course=obj).count()
+        total = 0
+        for m in obj.modules.all():
+            total += m.tasks.all().count()
+        return total
 
     def get_progress_percent(self, obj):
         total = self.get_total_tasks(obj)
