@@ -65,6 +65,7 @@ class TaskSerializer(serializers.ModelSerializer):
             'feedback': last.feedback,
             'created_at': last.created_at,
             'code': last.code,
+            'lang':last.lang
         }
 
     def get_my_submissions(self, obj):
@@ -86,6 +87,7 @@ class TaskSerializer(serializers.ModelSerializer):
                 'feedback': s.feedback,
                 'created_at': s.created_at,
                 'code': s.code,
+                'lang':s.lang
             }
             for s in subs
         ]

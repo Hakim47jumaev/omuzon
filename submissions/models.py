@@ -19,6 +19,7 @@ class Submission(models.Model):
     feedback = models.TextField(blank=True)
     errors = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    lang = models.CharField(max_length=50, default='python')
 
     def __str__(self):
         return f"{self.user} → {self.task.title}"

@@ -97,3 +97,101 @@ class ResendCodeView(generics.GenericAPIView):
             return Response({"message": "New verification code sent."})
         except EmailVerification.DoesNotExist:
             return Response({"error": "No pending registration for this email."}, status=400)
+        
+
+
+ 
+from rest_framework.permissions import IsAuthenticated
+ 
+from courses.models import Enrollment
+from submissions.models import Submission
+from .serializers import ProfileEducationSerializer
+
+
+class ProfileEducationView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        enrollments = (
+            Enrollment.objects
+            .filter(user=user)
+            .select_related('course')
+            .prefetch_related('course__modules__tasks')
+        )
+
+        submissions = (
+            Submission.objects
+            .filter(user=user)
+            .select_related('task', 'task__module')
+            .order_by('created_at')
+        )
+
+        submissions_by_task = {}
+        for s in submissions:
+            submissions_by_task.setdefault(s.task_id, []).append(s)
+
+        courses_data = []
+
+        completed_courses = 0
+        in_progress_courses = 0
+        total_solved_tasks = 0
+
+        for enrollment in enrollments:
+            course = enrollment.course
+
+            task_ids = []
+            for m in course.modules.all():
+                for t in m.tasks.all():
+                    task_ids.append(t.id)
+
+            total_tasks = len(task_ids)
+            solved_tasks = 0
+
+            for task_id in task_ids:
+                subs = submissions_by_task.get(task_id, [])
+                if any(s.status == 'accepted' for s in subs):
+                    solved_tasks += 1
+
+            progress = round((solved_tasks / total_tasks) * 100, 1) if total_tasks else 0
+
+            if course.start_time > timezone.now():
+                status = 'not_started'
+            elif progress == 100:
+                status = 'completed'
+                completed_courses += 1
+            elif progress > 0:
+                status = 'in_progress'
+                in_progress_courses += 1
+            else:
+                status = 'in_progress'
+                in_progress_courses += 1
+
+            total_solved_tasks += solved_tasks
+
+            courses_data.append({
+                'course_id': course.id,
+                'title': course.title,
+                'start_time': course.start_time,
+                'is_active': course.start_time <= timezone.now(),
+                'status': status,
+                'progress_percent': progress,
+                'solved_tasks': solved_tasks,
+                'total_tasks': total_tasks
+            })
+
+        summary = {
+            'enrolled_courses': enrollments.count(),
+            'completed_courses': completed_courses,
+            'in_progress_courses': in_progress_courses,
+            'total_solved_tasks': total_solved_tasks,
+            'total_submissions': submissions.count()
+        }
+
+        serializer = ProfileEducationSerializer({
+            'summary': summary,
+            'courses': courses_data
+        })
+
+        return Response(serializer.data)

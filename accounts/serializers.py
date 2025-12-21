@@ -120,3 +120,18 @@ class ProfileSerializer(serializers.ModelSerializer):
         model = Profile
         fields = ['id', 'user', 'avatar', 'bio']
         read_only_fields = ['id', 'user']
+
+class ProfileCourseEducationSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField()
+    title = serializers.CharField()
+    start_time = serializers.DateTimeField()
+    is_active = serializers.BooleanField()
+    status = serializers.CharField()
+    progress_percent = serializers.FloatField()
+    solved_tasks = serializers.IntegerField()
+    total_tasks = serializers.IntegerField()
+
+
+class ProfileEducationSerializer(serializers.Serializer):
+    summary = serializers.DictField()
+    courses = ProfileCourseEducationSerializer(many=True)
