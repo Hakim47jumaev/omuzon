@@ -113,13 +113,25 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'email', 'username', 'first_name', 'last_name']
 
-
 class ProfileSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
+
     class Meta:
         model = Profile
         fields = ['id', 'user', 'avatar', 'bio']
         read_only_fields = ['id', 'user']
+
+class TasksPerDaySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    solved_tasks = serializers.IntegerField()
+
+class ProfileEducationSummarySerializer(serializers.Serializer):
+    enrolled_courses = serializers.IntegerField()
+    completed_courses = serializers.IntegerField()
+    in_progress_courses = serializers.IntegerField()
+    total_solved_tasks = serializers.IntegerField()
+    total_submissions = serializers.IntegerField()
+    tasks_per_day = TasksPerDaySerializer(many=True)
 
 class ProfileCourseEducationSerializer(serializers.Serializer):
     course_id = serializers.IntegerField()
@@ -131,7 +143,6 @@ class ProfileCourseEducationSerializer(serializers.Serializer):
     solved_tasks = serializers.IntegerField()
     total_tasks = serializers.IntegerField()
 
-
 class ProfileEducationSerializer(serializers.Serializer):
-    summary = serializers.DictField()
+    summary = ProfileEducationSummarySerializer()
     courses = ProfileCourseEducationSerializer(many=True)

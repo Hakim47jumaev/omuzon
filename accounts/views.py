@@ -106,14 +106,14 @@ from rest_framework.permissions import IsAuthenticated
 from courses.models import Enrollment
 from submissions.models import Submission
 from .serializers import ProfileEducationSerializer
-
-
+from collections import defaultdict
 class ProfileEducationView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
 
+        # Получаем все курсы пользователя
         enrollments = (
             Enrollment.objects
             .filter(user=user)
@@ -121,6 +121,7 @@ class ProfileEducationView(APIView):
             .prefetch_related('course__modules__tasks')
         )
 
+        # Получаем все submission пользователя
         submissions = (
             Submission.objects
             .filter(user=user)
@@ -128,27 +129,24 @@ class ProfileEducationView(APIView):
             .order_by('created_at')
         )
 
+        # Группируем submission по задаче
         submissions_by_task = {}
         for s in submissions:
             submissions_by_task.setdefault(s.task_id, []).append(s)
 
         courses_data = []
-
         completed_courses = 0
         in_progress_courses = 0
         total_solved_tasks = 0
 
+        # -------------------- Данные по каждому курсу --------------------
         for enrollment in enrollments:
             course = enrollment.course
-
-            task_ids = []
-            for m in course.modules.all():
-                for t in m.tasks.all():
-                    task_ids.append(t.id)
-
+            task_ids = [t.id for m in course.modules.all() for t in m.tasks.all()]
             total_tasks = len(task_ids)
             solved_tasks = 0
 
+            # Считаем решённые задачи
             for task_id in task_ids:
                 subs = submissions_by_task.get(task_id, [])
                 if any(s.status == 'accepted' for s in subs):
@@ -161,14 +159,25 @@ class ProfileEducationView(APIView):
             elif progress == 100:
                 status = 'completed'
                 completed_courses += 1
-            elif progress > 0:
-                status = 'in_progress'
-                in_progress_courses += 1
             else:
                 status = 'in_progress'
                 in_progress_courses += 1
 
             total_solved_tasks += solved_tasks
+
+            # -------------------- Подсчёт уникальных задач по дням для этого курса --------------------
+            tasks_per_day = defaultdict(set)  # используем set для уникальных задач
+            for task_id in task_ids:
+                subs = submissions_by_task.get(task_id, [])
+                for s in subs:
+                    if s.status == 'accepted':
+                        day = s.created_at.date()
+                        tasks_per_day[day].add(s.task_id)
+
+            tasks_per_day_list = [
+                {"date": day, "solved_tasks": len(task_ids)}
+                for day, task_ids in sorted(tasks_per_day.items())
+            ]
 
             courses_data.append({
                 'course_id': course.id,
@@ -178,15 +187,29 @@ class ProfileEducationView(APIView):
                 'status': status,
                 'progress_percent': progress,
                 'solved_tasks': solved_tasks,
-                'total_tasks': total_tasks
+                'total_tasks': total_tasks,
+                'tasks_per_day': tasks_per_day_list
             })
+
+        # -------------------- Общая статистика --------------------
+        summary_tasks_per_day = defaultdict(set)
+        for s in submissions:
+            if s.status == 'accepted':
+                day = s.created_at.date()
+                summary_tasks_per_day[day].add(s.task_id)
+
+        summary_tasks_per_day_list = [
+            {"date": day, "solved_tasks": len(task_ids)}
+            for day, task_ids in sorted(summary_tasks_per_day.items())
+        ]
 
         summary = {
             'enrolled_courses': enrollments.count(),
             'completed_courses': completed_courses,
             'in_progress_courses': in_progress_courses,
             'total_solved_tasks': total_solved_tasks,
-            'total_submissions': submissions.count()
+            'total_submissions': submissions.count(),
+            'tasks_per_day': summary_tasks_per_day_list
         }
 
         serializer = ProfileEducationSerializer({

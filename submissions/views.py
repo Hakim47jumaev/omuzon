@@ -151,3 +151,163 @@ def submit_code(request):
         "submission_id": submission.id
     })
 
+
+
+@swagger_auto_schema(
+    method='post',
+    request_body=openapi.Schema(
+        type=openapi.TYPE_OBJECT,
+        required=['task_id', 'code'],
+        properties={
+            'task_id': openapi.Schema(
+                type=openapi.TYPE_INTEGER,
+                description='ID задачи'
+            ),
+            'code': openapi.Schema(
+                type=openapi.TYPE_STRING,
+                description='Код студента'
+            ),
+            'input': openapi.Schema(
+                type=openapi.TYPE_STRING,
+                description='Пользовательский input (необязательно)',
+                default=''
+            ),
+            'lang': openapi.Schema(
+                type=openapi.TYPE_STRING,
+                description='Язык',
+                default='python'
+            ),
+        },
+        example={
+            "task_id": 1,
+            "code": "a=int(input())\nprint('You entered a number', a)",
+            "input": "11",
+            "lang": "python"
+        }
+    ),
+    responses={
+        200: openapi.Response(
+            description="Результат выполнения",
+            examples={
+                "application/json": {
+                    "stdout": "You entered a number 11",
+                    "stderr": "",
+                    "used_input": "11",
+                    "lang": "python"
+                }
+            }
+        )
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def run_code(request):
+    """
+    Запуск кода студента (Run).
+    Без проверки, без сохранения.
+    """
+
+    task_id = request.data.get('task_id')
+    code = request.data.get('code', '')
+    lang = request.data.get('lang', 'python').lower()
+    custom_input = request.data.get('input')
+
+    if not task_id or not code:
+        return Response({"error": "task_id и code обязательны"}, status=400)
+
+    if len(code) > MAX_CODE_LENGTH:
+        return Response({"error": "Код слишком длинный"}, status=400)
+
+    try:
+        task = Task.objects.get(id=task_id)
+    except Task.DoesNotExist:
+        return Response({"error": "Задача не найдена"}, status=404)
+
+    # input: пользовательский → первый test_case → ""
+    if custom_input:  # только непустой
+        used_input = custom_input
+    else:
+        test = TestCase.objects.filter(task=task, is_active=True).order_by('order').first()
+        used_input = test.input_data if test else ""
+
+    try:
+        # ---------------- PYTHON ----------------
+        if lang == 'python':
+            cmd = [sys.executable, '-c', code]
+
+            result = subprocess.run(
+                cmd,
+                input=used_input,
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+
+        # ---------------- JAVASCRIPT ----------------
+        elif lang == 'javascript':
+            cmd = ['node', '-e', code]
+
+            result = subprocess.run(
+                cmd,
+                input=used_input,
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+
+        # ---------------- C++ (Linux only) ----------------
+        elif lang == 'cpp':
+            with tempfile.TemporaryDirectory() as tmp:
+                cpp_file = os.path.join(tmp, 'main.cpp')
+                exe_file = os.path.join(tmp, 'a.out')
+
+                with open(cpp_file, 'w') as f:
+                    f.write(code)
+
+                compile_proc = subprocess.run(
+                    ['g++', cpp_file, '-o', exe_file],
+                    capture_output=True,
+                    text=True
+                )
+
+                if compile_proc.stderr:
+                    return Response({
+                        "stdout": "",
+                        "stderr": compile_proc.stderr,
+                        "used_input": used_input,
+                        "lang": lang
+                    })
+
+                result = subprocess.run(
+                    [exe_file],
+                    input=used_input,
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+
+        else:
+            return Response({"error": f"Язык {lang} не поддерживается"}, status=400)
+
+    except subprocess.TimeoutExpired:
+        return Response({
+            "stdout": "",
+            "stderr": "Execution timeout",
+            "used_input": used_input,
+            "lang": lang
+        })
+
+    except Exception as e:
+        return Response({
+            "stdout": "",
+            "stderr": str(e),
+            "used_input": used_input,
+            "lang": lang
+        })
+
+    return Response({
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "used_input": used_input,
+        "lang": lang
+    })

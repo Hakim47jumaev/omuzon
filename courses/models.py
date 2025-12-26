@@ -9,6 +9,7 @@ class Course(models.Model):
     description = models.TextField()
     start_time = models.DateTimeField()
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    is_exam=models.BooleanField(default=False)
 
     @property
     def enrolled_count(self):
