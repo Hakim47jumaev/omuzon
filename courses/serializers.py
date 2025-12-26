@@ -1,8 +1,14 @@
 # courses/serializers.py
 from rest_framework import serializers
-from .models import Course, Module, Task, Enrollment
+from .models import Course, Module, Task, Enrollment,TestCase
 from submissions.models import Submission
 
+
+
+class TestCaseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TestCase
+        fields = ['id', 'input_data', 'expected_output', 'is_active', 'order']
 
 # ===================== ЛЁГКИЙ СЕРИАЛИЗАТОР ДЛЯ СПИСКОВ =====================
 class LightCourseSerializer(serializers.ModelSerializer):
@@ -26,10 +32,11 @@ class TaskSerializer(serializers.ModelSerializer):
     is_solved = serializers.SerializerMethodField()
     last_submission = serializers.SerializerMethodField()
     my_submissions = serializers.SerializerMethodField()
+    testcases = TestCaseSerializer(many=True, read_only=True)
 
     class Meta:
         model = Task
-        fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved', 'last_submission', 'my_submissions']
+        fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved', 'last_submission', 'my_submissions','testcases']
 
     def get_is_solved(self, obj):
         user = self.context['request'].user
@@ -165,3 +172,5 @@ class EnrollmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Enrollment
         fields = ['id', 'course', 'course_title', 'enrolled_at', 'progress']
+
+

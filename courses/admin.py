@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import Course, Module, Task, Enrollment
+from .models import Course, Module, Task, Enrollment,TestCase
+
+admin.site.register([TestCase])
 
 # ----------------- Task Inline -----------------
 class TaskInline(admin.TabularInline):

@@ -65,3 +65,18 @@ class Enrollment(models.Model):
 
     def __str__(self):
         return f"{self.user.username} enrolled in {self.course.title}"
+
+
+
+class TestCase(models.Model):
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='testcases')
+    input_data = models.TextField()        
+    expected_output = models.TextField()    
+    is_active = models.BooleanField(default=True)   
+    order = models.PositiveIntegerField(default=1)  
+
+    def __str__(self):
+        return f"TestCase {self.id} for {self.task.title}"
+
+    class Meta:
+        ordering = ['order']
