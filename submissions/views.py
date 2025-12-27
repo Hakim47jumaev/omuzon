@@ -50,89 +50,140 @@ def submit_code(request):
 
     task_id = serializer.validated_data['task_id']
     code = serializer.validated_data['code']
-    lang = serializer.validated_data.get('lang', '').lower()
+    lang = serializer.validated_data.get('lang', 'python').lower()
 
     if len(code) > MAX_CODE_LENGTH:
-        return Response({"error": "Код слишком длинный"}, status=400)
+        return Response({"error": "Code too long"}, status=400)
 
     try:
         task = Task.objects.get(id=task_id)
     except Task.DoesNotExist:
-        return Response({"error": "Задача не найдена"}, status=404)
+        return Response({"error": "Task not found"}, status=404)
 
-    if not Enrollment.objects.filter(user=request.user, course=task.module.course).exists():
-        return Response({"error": "Вы не записаны на курс"}, status=403)
+    if not Enrollment.objects.filter(
+        user=request.user,
+        course=task.module.course
+    ).exists():
+        return Response({"error": "Not enrolled"}, status=403)
 
-    if not lang:
-        lang = getattr(task, 'lang', 'python').lower()
-
-    testcases = TestCase.objects.filter(task=task, is_active=True).order_by('order')
+    testcases = TestCase.objects.filter(
+        task=task,
+        is_active=True
+    ).order_by('order')
 
     status_result = "accepted"
     feedback = "All tests passed"
     errors = []
 
-    for test in testcases:
+    for idx, test in enumerate(testcases, start=1):
         try:
+            # ---------- RUN ----------
             if lang == 'python':
                 cmd = [sys.executable, '-c', code]
-                run_kwargs = {'input': test.input_data, 'capture_output': True, 'timeout': 2, 'text': True}
+                run_kwargs = {
+                    'input': test.input_data or '',
+                    'capture_output': True,
+                    'timeout': 2,
+                    'text': True
+                }
+
             elif lang == 'javascript':
                 cmd = ['node', '-e', code]
-                run_kwargs = {'input': test.input_data, 'capture_output': True, 'timeout': 2, 'text': True}
-            elif lang == 'cpp' or lang == 'c++':
-                # Создаем временные файлы
-                with tempfile.NamedTemporaryFile(suffix='.cpp', delete=False) as src_file:
-                    src_file.write(code.encode())
-                    src_file_path = src_file.name
-                exe_file_path = src_file_path[:-4]  # удаляем .cpp
-                # Компиляция
-                compile_proc = subprocess.run(['g++', src_file_path, '-o', exe_file_path],
-                                              capture_output=True, text=True)
+                run_kwargs = {
+                    'input': test.input_data or '',
+                    'capture_output': True,
+                    'timeout': 2,
+                    'text': True
+                }
+
+            elif lang in ('cpp', 'c++'):
+                with tempfile.NamedTemporaryFile(suffix='.cpp', delete=False) as src:
+                    src.write(code.encode())
+                    src_path = src.name
+
+                exe_path = src_path[:-4]
+
+                compile_proc = subprocess.run(
+                    ['g++', src_path, '-o', exe_path],
+                    capture_output=True,
+                    text=True
+                )
+
                 if compile_proc.returncode != 0:
                     status_result = "error"
-                    feedback = compile_proc.stderr.strip()
-                    errors.append(feedback)
-                    os.unlink(src_file_path)
+                    feedback = "Compilation error"
+                    errors.append({
+                        "test_index": idx,
+                        "test_db_id": test.id,
+                        "stderr": compile_proc.stderr.strip()
+                    })
                     break
-                # Запуск бинарника
-                cmd = [exe_file_path]
-                run_kwargs = {'input': test.input_data, 'capture_output': True, 'timeout': 2, 'text': True}
+
+                cmd = [exe_path]
+                run_kwargs = {
+                    'input': test.input_data or '',
+                    'capture_output': True,
+                    'timeout': 2,
+                    'text': True
+                }
+
             else:
-                status_result = "error"
-                feedback = f"Язык {lang} не поддерживается"
-                break
+                return Response({"error": "Language not supported"}, status=400)
 
             result = subprocess.run(cmd, **run_kwargs)
 
+            # ---------- RUNTIME ERROR ----------
             if result.stderr:
                 status_result = "error"
-                feedback = result.stderr.strip()
-                errors.append(feedback)
+                feedback = "Runtime error"
+                errors.append({
+                    "test_index": idx,
+                    "test_db_id": test.id,
+                    "stderr": result.stderr.strip()
+                })
                 break
 
+            # ---------- CHECK ----------
             output = result.stdout.strip()
-            if output != test.expected_output.strip():
+            expected = test.expected_output.strip()
+
+            if output != expected:
                 status_result = "rejected"
-                feedback = f"Failed test {test.id}"
+                feedback = f"Failed test {idx}"
+                errors.append({
+                    "test_index": idx,
+                    "test_db_id": test.id,
+                    "expected": expected,
+                    "output": output
+                })
                 break
 
         except subprocess.TimeoutExpired:
             status_result = "error"
-            feedback = f"Timeout on test {test.id}"
-            errors.append(feedback)
+            feedback = f"Timeout on test {idx}"
+            errors.append({
+                "test_index": idx,
+                "test_db_id": test.id,
+                "error": "timeout"
+            })
             break
+
         except Exception as e:
             status_result = "error"
-            feedback = str(e)
-            errors.append(feedback)
+            feedback = "Internal error"
+            errors.append({
+                "test_index": idx,
+                "test_db_id": test.id,
+                "error": str(e)
+            })
             break
+
         finally:
-            if lang in ['cpp', 'c++']:
-                if os.path.exists(src_file_path):
-                    os.unlink(src_file_path)
-                if os.path.exists(exe_file_path):
-                    os.unlink(exe_file_path)
+            if lang in ('cpp', 'c++'):
+                if 'src_path' in locals() and os.path.exists(src_path):
+                    os.unlink(src_path)
+                if 'exe_path' in locals() and os.path.exists(exe_path):
+                    os.unlink(exe_path)
 
     submission = Submission.objects.create(
         user=request.user,
@@ -145,7 +196,6 @@ def submit_code(request):
     )
 
     return Response({
-        "message": "Код проверен",
         "status": status_result,
         "feedback": feedback,
         "submission_id": submission.id
@@ -198,8 +248,7 @@ def submit_code(request):
             }
         )
     }
-)
-@api_view(['POST'])
+)@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def run_code(request):
     """
@@ -223,12 +272,12 @@ def run_code(request):
     except Task.DoesNotExist:
         return Response({"error": "Задача не найдена"}, status=404)
 
-    # input: пользовательский → первый test_case → ""
-    if custom_input:  # только непустой
-        used_input = custom_input
+    # ---------------- INPUT ----------------
+    if custom_input is not None:
+        used_input = str(custom_input)  # кастомный ввод, даже пустой
     else:
         test = TestCase.objects.filter(task=task, is_active=True).order_by('order').first()
-        used_input = test.input_data if test else ""
+        used_input = str(test.input_data) if test else ""  # первый test_case или пусто
 
     try:
         # ---------------- PYTHON ----------------
@@ -255,8 +304,8 @@ def run_code(request):
                 timeout=2
             )
 
-        # ---------------- C++ (Linux only) ----------------
-        elif lang == 'cpp':
+        # ---------------- C++ ----------------
+        elif lang in ('cpp', 'c++'):
             with tempfile.TemporaryDirectory() as tmp:
                 cpp_file = os.path.join(tmp, 'main.cpp')
                 exe_file = os.path.join(tmp, 'a.out')
@@ -270,7 +319,7 @@ def run_code(request):
                     text=True
                 )
 
-                if compile_proc.stderr:
+                if compile_proc.returncode != 0:
                     return Response({
                         "stdout": "",
                         "stderr": compile_proc.stderr,

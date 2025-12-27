@@ -25,7 +25,7 @@ class TaskAdmin(admin.ModelAdmin):
 class TaskInline(admin.TabularInline):
     model = Task
     extra = 1
-    fields = ('title', 'order', 'task_text', 'is_active')
+    fields = ('title', 'order', 'task_text')
     ordering = ('order',)
     show_change_link = True
     formfield_overrides = {

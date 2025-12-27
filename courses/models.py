@@ -71,7 +71,7 @@ class Enrollment(models.Model):
 
 class TestCase(models.Model):
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='testcases')
-    input_data = models.TextField()        
+    input_data = models.TextField(blank=True)        
     expected_output = models.TextField()    
     is_active = models.BooleanField(default=True)   
     order = models.PositiveIntegerField(default=1)  
