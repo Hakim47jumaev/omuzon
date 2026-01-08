@@ -60,93 +60,100 @@ def submit_code(request):
     except Task.DoesNotExist:
         return Response({"error": "Task not found"}, status=404)
 
-    if not Enrollment.objects.filter(
-        user=request.user,
-        course=task.module.course
-    ).exists():
+    if not Enrollment.objects.filter(user=request.user, course=task.module.course).exists():
         return Response({"error": "Not enrolled"}, status=403)
 
-    testcases = TestCase.objects.filter(
-        task=task,
-        is_active=True
-    ).order_by('order')
+    testcases = TestCase.objects.filter(task=task, is_active=True).order_by('order')
 
     status_result = "accepted"
     feedback = "All tests passed"
     errors = []
 
+    # Для C++: компилируем один раз
+    exe_path = None
+    src_path = None
+    if lang in ('cpp', 'c++'):
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.cpp', delete=False) as src:
+                src.write(code.encode())
+                src_path = src.name
+            exe_path = src_path[:-4]
+            compile_proc = subprocess.run(
+                ['g++', src_path, '-o', exe_path],
+                capture_output=True,
+                text=True
+            )
+            if compile_proc.returncode != 0:
+                status_result = "error"
+                error_text = compile_proc.stderr.strip()
+                feedback = error_text or "Compilation error"
+                errors.append({"test_index": 0, "test_db_id": None, "error": error_text})
+                # сразу возвращаем результат, тестов не выполняем
+                submission = Submission.objects.create(
+                    user=request.user,
+                    task=task,
+                    code=code,
+                    status=status_result,
+                    feedback=feedback,
+                    errors=errors,
+                    lang=lang
+                )
+                return Response({
+                    "status": status_result,
+                    "feedback": feedback,
+                    "submission_id": submission.id
+                })
+        except Exception as e:
+            status_result = "error"
+            feedback = str(e)
+            errors.append({"test_index": 0, "test_db_id": None, "error": feedback})
+            submission = Submission.objects.create(
+                user=request.user,
+                task=task,
+                code=code,
+                status=status_result,
+                feedback=feedback,
+                errors=errors,
+                lang=lang
+            )
+            return Response({
+                "status": status_result,
+                "feedback": feedback,
+                "submission_id": submission.id
+            })
+
+    # Запуск тестов
     for idx, test in enumerate(testcases, start=1):
         try:
-            # ---------- RUN ----------
             if lang == 'python':
                 cmd = [sys.executable, '-c', code]
-                run_kwargs = {
-                    'input': test.input_data or '',
-                    'capture_output': True,
-                    'timeout': 2,
-                    'text': True
-                }
-
+                run_kwargs = {'input': test.input_data or '', 'capture_output': True, 'timeout': 2, 'text': True}
             elif lang == 'javascript':
                 cmd = ['node', '-e', code]
-                run_kwargs = {
-                    'input': test.input_data or '',
-                    'capture_output': True,
-                    'timeout': 2,
-                    'text': True
-                }
-
+                run_kwargs = {'input': test.input_data or '', 'capture_output': True, 'timeout': 2, 'text': True}
             elif lang in ('cpp', 'c++'):
-                with tempfile.NamedTemporaryFile(suffix='.cpp', delete=False) as src:
-                    src.write(code.encode())
-                    src_path = src.name
-
-                exe_path = src_path[:-4]
-
-                compile_proc = subprocess.run(
-                    ['g++', src_path, '-o', exe_path],
-                    capture_output=True,
-                    text=True
-                )
-
-                if compile_proc.returncode != 0:
-                    status_result = "error"
-                    feedback = "Compilation error"
-                    errors.append({
-                        "test_index": idx,
-                        "test_db_id": test.id,
-                        "stderr": compile_proc.stderr.strip()
-                    })
-                    break
-
                 cmd = [exe_path]
-                run_kwargs = {
-                    'input': test.input_data or '',
-                    'capture_output': True,
-                    'timeout': 2,
-                    'text': True
-                }
-
+                run_kwargs = {'input': test.input_data or '', 'capture_output': True, 'timeout': 2, 'text': True}
             else:
                 return Response({"error": "Language not supported"}, status=400)
 
             result = subprocess.run(cmd, **run_kwargs)
 
             # ---------- RUNTIME ERROR ----------
-            if result.stderr:
+            if result.returncode != 0:
                 status_result = "error"
-                feedback = "Runtime error"
+                error_text = result.stderr.strip()
+                feedback = error_text or "Runtime error"
                 errors.append({
                     "test_index": idx,
                     "test_db_id": test.id,
-                    "stderr": result.stderr.strip()
+                    "error": error_text
                 })
                 break
 
-            # ---------- CHECK ----------
+            # ---------- CHECK OUTPUT ----------
             output = result.stdout.strip()
             expected = test.expected_output.strip()
-
             if output != expected:
                 status_result = "rejected"
                 feedback = f"Failed test {idx}"
@@ -167,10 +174,9 @@ def submit_code(request):
                 "error": "timeout"
             })
             break
-
         except Exception as e:
             status_result = "error"
-            feedback = "Internal error"
+            feedback = "Internal error: " + str(e)
             errors.append({
                 "test_index": idx,
                 "test_db_id": test.id,
@@ -180,9 +186,9 @@ def submit_code(request):
 
         finally:
             if lang in ('cpp', 'c++'):
-                if 'src_path' in locals() and os.path.exists(src_path):
+                if src_path and os.path.exists(src_path):
                     os.unlink(src_path)
-                if 'exe_path' in locals() and os.path.exists(exe_path):
+                if exe_path and os.path.exists(exe_path):
                     os.unlink(exe_path)
 
     submission = Submission.objects.create(
@@ -248,7 +254,8 @@ def submit_code(request):
             }
         )
     }
-)@api_view(['POST'])
+)
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def run_code(request):
     """
