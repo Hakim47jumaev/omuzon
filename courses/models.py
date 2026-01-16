@@ -10,6 +10,8 @@ class Course(models.Model):
     start_time = models.DateTimeField()
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     is_exam=models.BooleanField(default=False)
+    is_olimpiad = models.BooleanField(default=False)
+    end_time = models.DateTimeField(null=True, blank=True)
 
     @property
     def enrolled_count(self):
@@ -18,6 +20,28 @@ class Course(models.Model):
     @property
     def is_active(self):
         return self.start_time is not None and self.start_time <= timezone.now()
+    
+    @property
+    def is_olimpiad_active(self):
+        """Проверяет, активна ли олимпиада в данный момент"""
+        if not self.is_olimpiad:
+            return False
+        now = timezone.now()
+        if self.start_time and self.start_time > now:
+            return False
+        if self.end_time and self.end_time < now:
+            return False
+        return True
+    
+    @property
+    def is_olimpiad_finished(self):
+        """Проверяет, закончилась ли олимпиада"""
+        if not self.is_olimpiad:
+            return False
+        if self.end_time:
+            return timezone.now() > self.end_time
+        return False
+    
     def __str__(self):
         return self.title
 

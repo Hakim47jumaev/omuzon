@@ -2,6 +2,7 @@
 from rest_framework import serializers
 from .models import Course, Module, Task, Enrollment,TestCase
 from submissions.models import Submission
+from django.utils import timezone
 
 
 
@@ -14,6 +15,8 @@ class TestCaseSerializer(serializers.ModelSerializer):
 class LightCourseSerializer(serializers.ModelSerializer):
     enrolled_count = serializers.IntegerField(read_only=True)
     is_active = serializers.ReadOnlyField()
+    is_olimpiad_active = serializers.ReadOnlyField()
+    is_olimpiad_finished = serializers.ReadOnlyField()
 
     class Meta:
         model = Course
@@ -22,7 +25,11 @@ class LightCourseSerializer(serializers.ModelSerializer):
             'title',
             'description',
             'start_time',
+            'end_time',
             'is_active',
+            'is_olimpiad',
+            'is_olimpiad_active',
+            'is_olimpiad_finished',
             'enrolled_count'
         ]
 
@@ -42,11 +49,35 @@ class TaskSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         if not user.is_authenticated:
             return False
+        
+        course = obj.module.course
         submissions_map = self.context.get('user_submissions_by_task')
+        
         if submissions_map is not None:
             subs = submissions_map.get(obj.id, [])
-            return any(s.status == 'accepted' for s in subs)
-        return Submission.objects.filter(user=user, task=obj, status='accepted').exists()
+            # Для олимпиадного режима проверяем время
+            if course.is_olimpiad:
+                now = timezone.now()
+                for s in subs:
+                    if s.status == 'accepted':
+                        # Проверяем, что сабмит был сделан внутри времени олимпиады
+                        if course.start_time and s.created_at < course.start_time:
+                            continue
+                        if course.end_time and s.created_at > course.end_time:
+                            continue
+                        return True
+                return False
+            else:
+                return any(s.status == 'accepted' for s in subs)
+        
+        # Если submissions_map не передан, делаем запрос к БД
+        queryset = Submission.objects.filter(user=user, task=obj, status='accepted')
+        if course.is_olimpiad:
+            if course.start_time:
+                queryset = queryset.filter(created_at__gte=course.start_time)
+            if course.end_time:
+                queryset = queryset.filter(created_at__lte=course.end_time)
+        return queryset.exists()
 
     def get_last_submission(self, obj):
         user = self.context['request'].user
@@ -115,6 +146,8 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
     solved_tasks_count = serializers.SerializerMethodField()
     total_tasks = serializers.SerializerMethodField()
     progress_percent = serializers.SerializerMethodField()
+    is_olimpiad_active = serializers.ReadOnlyField()
+    is_olimpiad_finished = serializers.ReadOnlyField()
 
     class Meta:
         model = Course
@@ -123,6 +156,10 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
             'title',
             'description',
             'start_time',
+            'end_time',
+            'is_olimpiad',
+            'is_olimpiad_active',
+            'is_olimpiad_finished',
             'is_enrolled',
             'solved_tasks_count',
             'total_tasks',
@@ -142,9 +179,24 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
             return 0
         submissions_map = self.context.get('user_submissions_by_task', {})
         accepted_task_ids = set()
+        now = timezone.now()
+        
         for task_id, subs in submissions_map.items():
-            if any(s.status == 'accepted' for s in subs):
-                accepted_task_ids.add(task_id)
+            # Для олимпиадного режима проверяем время
+            if obj.is_olimpiad:
+                for s in subs:
+                    if s.status == 'accepted':
+                        # Проверяем, что сабмит был сделан внутри времени олимпиады
+                        if obj.start_time and s.created_at < obj.start_time:
+                            continue
+                        if obj.end_time and s.created_at > obj.end_time:
+                            continue
+                        accepted_task_ids.add(task_id)
+                        break
+            else:
+                if any(s.status == 'accepted' for s in subs):
+                    accepted_task_ids.add(task_id)
+        
         course_task_ids = set()
         for m in obj.modules.all():
             for t in m.tasks.all():

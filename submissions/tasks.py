@@ -55,11 +55,12 @@ def submit_code_task(submission_id: int):
     
     user = submission.user
     task = submission.task
+    course = task.module.course
     code = submission.code
     lang = submission.lang.lower()
     
-    # Проверяем, что пользователь записан на курс
-    if not Enrollment.objects.filter(user=user, course=task.module.course).exists():
+    # Проверяем, что пользователь записан на курс (как раньше - для всех курсов)
+    if not Enrollment.objects.filter(user=user, course=course).exists():
         submission.status = 'error'
         submission.feedback = 'Пользователь не записан на курс'
         submission.save()

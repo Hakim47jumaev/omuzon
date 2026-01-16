@@ -10,6 +10,7 @@ from .views import (
     CourseCreateView,
     CourseUpdateView,
     CourseDeleteView,
+    OlimpiadLeaderboardView,
 )
 
 urlpatterns = [
@@ -24,4 +25,5 @@ urlpatterns = [
     path('courses/create/', CourseCreateView.as_view(), name='course-create'),
     path('courses/<int:pk>/update/', CourseUpdateView.as_view(), name='course-update'),
     path('courses/<int:pk>/delete/', CourseDeleteView.as_view(), name='course-delete'),
+    path('courses/<int:course_id>/leaderboard/', OlimpiadLeaderboardView.as_view(), name='olimpiad-leaderboard'),
 ]

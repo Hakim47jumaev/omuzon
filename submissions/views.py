@@ -2,15 +2,18 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from courses.models import Task, Enrollment, TestCase
+from courses.models import Task, Enrollment, TestCase, Course
 from .models import Submission
 from .serializers import SubmissionSerializer
 from .tasks import submit_code_task, execute_code_task
 from .docker_runner import run_code_in_docker, run_cpp_in_docker
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.utils import timezone
+from datetime import timedelta
 
 MAX_CODE_LENGTH = 10000  # ограничение длины кода
+MAX_SUBMISSIONS_PER_MINUTE = 10  # лимит сабмитов в минуту для защиты от накрутки
 
 @swagger_auto_schema(
     method='post',
@@ -58,8 +61,41 @@ def submit_code(request):
     except Task.DoesNotExist:
         return Response({"error": "Task not found"}, status=404)
 
-    if not Enrollment.objects.filter(user=request.user, course=task.module.course).exists():
+    # Проверка записи на курс (как раньше - для всех курсов, включая олимпиады)
+    course = task.module.course
+    if not Enrollment.objects.filter(user=request.user, course=course).exists():
         return Response({"error": "Not enrolled"}, status=403)
+
+    # Проверка олимпиадного режима
+    now = timezone.now()
+    
+    if course.is_olimpiad:
+        # Проверка времени начала олимпиады
+        if course.start_time and course.start_time > now:
+            return Response(
+                {"error": "Олимпиада ещё не началась. Отправка решений будет доступна после начала."},
+                status=403
+            )
+        # Проверка времени окончания олимпиады
+        if course.end_time and course.end_time < now:
+            return Response(
+                {"error": "Олимпиада завершена. Отправка решений больше недоступна."},
+                status=403
+            )
+        
+        # Защита от накрутки: проверка лимита сабмитов в минуту
+        one_minute_ago = now - timedelta(minutes=1)
+        recent_submissions_count = Submission.objects.filter(
+            user=request.user,
+            task__module__course=course,
+            created_at__gte=one_minute_ago
+        ).count()
+        
+        if recent_submissions_count >= MAX_SUBMISSIONS_PER_MINUTE:
+            return Response(
+                {"error": f"Превышен лимит отправок. Максимум {MAX_SUBMISSIONS_PER_MINUTE} отправок в минуту."},
+                status=429
+            )
 
     # Создаем Submission сразу со статусом "pending"
     submission = Submission.objects.create(
@@ -72,25 +108,28 @@ def submit_code(request):
         lang=lang
     )
 
-    # Запускаем проверку кода
-    # ВАЖНО: Всегда выполняем синхронно для гарантии выполнения
-    # Celery можно использовать, но только если worker точно запущен
+    # Запускаем проверку кода через Celery (асинхронно)
     import logging
     logger = logging.getLogger(__name__)
     
-    # По умолчанию выполняем синхронно для надежности
-    # Это гарантирует, что задача точно выполнится
     try:
-        logger.info(f"Executing submission check synchronously for submission_id={submission.id}")
-        submit_code_task(submission.id)
-        submission.refresh_from_db()
-    except Exception as sync_error:
-        logger.error(f"Error in synchronous execution: {sync_error}", exc_info=True)
-        import traceback
-        submission.status = 'error'
-        submission.feedback = f'Ошибка выполнения: {str(sync_error)}'
-        submission.errors = [{"error": str(sync_error), "traceback": traceback.format_exc()}]
-        submission.save()
+        logger.info(f"Submitting code check task to Celery for submission_id={submission.id}")
+        # Асинхронный вызов через Celery
+        submit_code_task.delay(submission.id)
+        # Возвращаем сразу, статус будет обновлён Celery worker'ом
+    except Exception as celery_error:
+        # Если Celery недоступен, выполняем синхронно как fallback
+        logger.warning(f"Celery not available, executing synchronously: {celery_error}")
+        try:
+            submit_code_task(submission.id)
+            submission.refresh_from_db()
+        except Exception as sync_error:
+            logger.error(f"Error in synchronous execution: {sync_error}", exc_info=True)
+            import traceback
+            submission.status = 'error'
+            submission.feedback = f'Ошибка выполнения: {str(sync_error)}'
+            submission.errors = [{"error": str(sync_error), "traceback": traceback.format_exc()}]
+            submission.save()
 
     # Обновляем submission из БД, чтобы получить актуальный статус
     submission.refresh_from_db()
