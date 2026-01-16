@@ -1,0 +1,18 @@
+[Unit]
+Description=Celery Service for Omuzon API
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/omuzon/API
+Environment="PATH=/var/www/omuzon/API/.venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=core.settings"
+ExecStart=/var/www/omuzon/API/.venv/bin/celery -A core worker --pool=solo --loglevel=info --logfile=/var/log/celery/celery.log
+ExecStop=/bin/kill -s TERM $MAINPID
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

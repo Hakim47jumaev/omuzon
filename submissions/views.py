@@ -5,18 +5,12 @@ from rest_framework.response import Response
 from courses.models import Task, Enrollment, TestCase
 from .models import Submission
 from .serializers import SubmissionSerializer
-import subprocess
-import sys
+from .tasks import submit_code_task, execute_code_task
+from .docker_runner import run_code_in_docker, run_cpp_in_docker
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 MAX_CODE_LENGTH = 10000  # ограничение длины кода
-
-# submissions/views.py
-import subprocess
-import sys
-import tempfile
-import os
 
 @swagger_auto_schema(
     method='post',
@@ -44,6 +38,10 @@ import os
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def submit_code(request):
+    """
+    Отправка кода на проверку через Celery (асинхронно в Docker)
+    Сразу создает Submission и возвращает его ID
+    """
     serializer = SubmissionSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=400)
@@ -63,149 +61,45 @@ def submit_code(request):
     if not Enrollment.objects.filter(user=request.user, course=task.module.course).exists():
         return Response({"error": "Not enrolled"}, status=403)
 
-    testcases = TestCase.objects.filter(task=task, is_active=True).order_by('order')
-
-    status_result = "accepted"
-    feedback = "All tests passed"
-    errors = []
-
-    # Для C++: компилируем один раз
-    exe_path = None
-    src_path = None
-    if lang in ('cpp', 'c++'):
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.cpp', delete=False) as src:
-                src.write(code.encode())
-                src_path = src.name
-            exe_path = src_path[:-4]
-            compile_proc = subprocess.run(
-                ['g++', src_path, '-o', exe_path],
-                capture_output=True,
-                text=True
-            )
-            if compile_proc.returncode != 0:
-                status_result = "error"
-                error_text = compile_proc.stderr.strip()
-                feedback = error_text or "Compilation error"
-                errors.append({"test_index": 0, "test_db_id": None, "error": error_text})
-                # сразу возвращаем результат, тестов не выполняем
-                submission = Submission.objects.create(
-                    user=request.user,
-                    task=task,
-                    code=code,
-                    status=status_result,
-                    feedback=feedback,
-                    errors=errors,
-                    lang=lang
-                )
-                return Response({
-                    "status": status_result,
-                    "feedback": feedback,
-                    "submission_id": submission.id
-                })
-        except Exception as e:
-            status_result = "error"
-            feedback = str(e)
-            errors.append({"test_index": 0, "test_db_id": None, "error": feedback})
-            submission = Submission.objects.create(
-                user=request.user,
-                task=task,
-                code=code,
-                status=status_result,
-                feedback=feedback,
-                errors=errors,
-                lang=lang
-            )
-            return Response({
-                "status": status_result,
-                "feedback": feedback,
-                "submission_id": submission.id
-            })
-
-    # Запуск тестов
-    for idx, test in enumerate(testcases, start=1):
-        try:
-            if lang == 'python':
-                cmd = [sys.executable, '-c', code]
-                run_kwargs = {'input': test.input_data or '', 'capture_output': True, 'timeout': 2, 'text': True}
-            elif lang == 'javascript':
-                cmd = ['node', '-e', code]
-                run_kwargs = {'input': test.input_data or '', 'capture_output': True, 'timeout': 2, 'text': True}
-            elif lang in ('cpp', 'c++'):
-                cmd = [exe_path]
-                run_kwargs = {'input': test.input_data or '', 'capture_output': True, 'timeout': 2, 'text': True}
-            else:
-                return Response({"error": "Language not supported"}, status=400)
-
-            result = subprocess.run(cmd, **run_kwargs)
-
-            # ---------- RUNTIME ERROR ----------
-            if result.returncode != 0:
-                status_result = "error"
-                error_text = result.stderr.strip()
-                feedback = error_text or "Runtime error"
-                errors.append({
-                    "test_index": idx,
-                    "test_db_id": test.id,
-                    "error": error_text
-                })
-                break
-
-            # ---------- CHECK OUTPUT ----------
-            output = result.stdout.strip()
-            expected = test.expected_output.strip()
-            if output != expected:
-                status_result = "rejected"
-                feedback = f"Failed test {idx}"
-                errors.append({
-                    "test_index": idx,
-                    "test_db_id": test.id,
-                    "expected": expected,
-                    "output": output
-                })
-                break
-
-        except subprocess.TimeoutExpired:
-            status_result = "error"
-            feedback = f"Timeout on test {idx}"
-            errors.append({
-                "test_index": idx,
-                "test_db_id": test.id,
-                "error": "timeout"
-            })
-            break
-        except Exception as e:
-            status_result = "error"
-            feedback = "Internal error: " + str(e)
-            errors.append({
-                "test_index": idx,
-                "test_db_id": test.id,
-                "error": str(e)
-            })
-            break
-
-        finally:
-            if lang in ('cpp', 'c++'):
-                if src_path and os.path.exists(src_path):
-                    os.unlink(src_path)
-                if exe_path and os.path.exists(exe_path):
-                    os.unlink(exe_path)
-
+    # Создаем Submission сразу со статусом "pending"
     submission = Submission.objects.create(
         user=request.user,
         task=task,
         code=code,
-        status=status_result,
-        feedback=feedback,
-        errors=errors,
+        status='pending',
+        feedback='Проверка в процессе...',
+        errors=[],
         lang=lang
     )
 
+    # Запускаем проверку кода
+    # ВАЖНО: Всегда выполняем синхронно для гарантии выполнения
+    # Celery можно использовать, но только если worker точно запущен
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # По умолчанию выполняем синхронно для надежности
+    # Это гарантирует, что задача точно выполнится
+    try:
+        logger.info(f"Executing submission check synchronously for submission_id={submission.id}")
+        submit_code_task(submission.id)
+        submission.refresh_from_db()
+    except Exception as sync_error:
+        logger.error(f"Error in synchronous execution: {sync_error}", exc_info=True)
+        import traceback
+        submission.status = 'error'
+        submission.feedback = f'Ошибка выполнения: {str(sync_error)}'
+        submission.errors = [{"error": str(sync_error), "traceback": traceback.format_exc()}]
+        submission.save()
+
+    # Обновляем submission из БД, чтобы получить актуальный статус
+    submission.refresh_from_db()
+    
+    # Возвращаем submission_id и текущий статус
     return Response({
-        "status": status_result,
-        "feedback": feedback,
-        "submission_id": submission.id
-    })
+        "submission_id": submission.id,
+        "status": submission.status
+    }, status=202 if submission.status == "pending" else 200)
 
 
 
@@ -259,8 +153,9 @@ def submit_code(request):
 @permission_classes([IsAuthenticated])
 def run_code(request):
     """
-    Запуск кода студента (Run).
+    Запуск кода студента в Docker (Run).
     Без проверки, без сохранения.
+    Выполняется синхронно, но в безопасном Docker контейнере.
     """
 
     task_id = request.data.get('task_id')
@@ -280,90 +175,81 @@ def run_code(request):
         return Response({"error": "Задача не найдена"}, status=404)
 
     # ---------------- INPUT ----------------
-    if custom_input is not None:
-        used_input = str(custom_input)  # кастомный ввод, даже пустой
+    # Если input не передан или пустой - берем первый тест-кейс задачи
+    if custom_input is not None and str(custom_input).strip():
+        used_input = str(custom_input)  # кастомный ввод
     else:
+        # Берем первый тест-кейс задачи
         test = TestCase.objects.filter(task=task, is_active=True).order_by('order').first()
-        used_input = str(test.input_data) if test else ""  # первый test_case или пусто
-
-    try:
-        # ---------------- PYTHON ----------------
-        if lang == 'python':
-            cmd = [sys.executable, '-c', code]
-
-            result = subprocess.run(
-                cmd,
-                input=used_input,
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-
-        # ---------------- JAVASCRIPT ----------------
-        elif lang == 'javascript':
-            cmd = ['node', '-e', code]
-
-            result = subprocess.run(
-                cmd,
-                input=used_input,
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-
-        # ---------------- C++ ----------------
-        elif lang in ('cpp', 'c++'):
-            with tempfile.TemporaryDirectory() as tmp:
-                cpp_file = os.path.join(tmp, 'main.cpp')
-                exe_file = os.path.join(tmp, 'a.out')
-
-                with open(cpp_file, 'w') as f:
-                    f.write(code)
-
-                compile_proc = subprocess.run(
-                    ['g++', cpp_file, '-o', exe_file],
-                    capture_output=True,
-                    text=True
-                )
-
-                if compile_proc.returncode != 0:
-                    return Response({
-                        "stdout": "",
-                        "stderr": compile_proc.stderr,
-                        "used_input": used_input,
-                        "lang": lang
-                    })
-
-                result = subprocess.run(
-                    [exe_file],
-                    input=used_input,
-                    capture_output=True,
-                    text=True,
-                    timeout=2
-                )
-
+        if test:
+            used_input = str(test.input_data) if test.input_data else ""
         else:
-            return Response({"error": f"Язык {lang} не поддерживается"}, status=400)
+            used_input = ""  # если нет тест-кейсов - пустой ввод
 
-    except subprocess.TimeoutExpired:
+    # Выполняем код в Docker контейнере
+    if lang in ('cpp', 'c++'):
+        result = run_cpp_in_docker(code, used_input, timeout=2)
+    else:
+        result = run_code_in_docker(code, lang, used_input, timeout=2)
+
+    # Формируем ответ
+    if result['status'] == 'ok':
         return Response({
-            "stdout": "",
-            "stderr": "Execution timeout",
+            "stdout": result['stdout'],
+            "stderr": result['stderr'],
             "used_input": used_input,
             "lang": lang
         })
-
-    except Exception as e:
+    else:
         return Response({
-            "stdout": "",
-            "stderr": str(e),
-            "used_input": used_input,
-            "lang": lang
-        })
-
-    return Response({
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "stdout": result.get('stdout', ''),
+        "stderr": result.get('stderr', 'Unknown error'),
         "used_input": used_input,
         "lang": lang
     })
+
+
+@swagger_auto_schema(
+    method='get',
+    responses={
+        200: openapi.Response(
+            description="Результат проверки кода",
+            examples={
+                "application/json": {
+                    "id": 123,
+                    "status": "accepted",
+                    "feedback": "All tests passed",
+                    "errors": [],
+                    "code": "print('Hello')",
+                    "lang": "python",
+                    "created_at": "2024-01-01T12:00:00Z"
+                }
+            }
+        ),
+        404: "Submission not found"
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_submission(request, submission_id):
+    """
+    Получает результат проверки кода по ID submission
+    """
+    try:
+        submission = Submission.objects.get(id=submission_id, user=request.user)
+        
+        return Response({
+            "id": submission.id,
+            "status": submission.status,
+            "feedback": submission.feedback,
+            "errors": submission.errors,
+            "code": submission.code,
+            "lang": submission.lang,
+            "created_at": submission.created_at,
+            "task_id": submission.task.id,
+            "task_title": submission.task.title
+        })
+    except Submission.DoesNotExist:
+        return Response({
+            "error": "Submission not found"
+        }, status=404)

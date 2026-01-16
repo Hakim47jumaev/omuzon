@@ -27,7 +27,8 @@ INSTALLED_APPS = [
     'accounts',
     'courses',
     'submissions',
-    'django_filters'
+    'django_filters',
+    "django_celery_results",
 ]
 
 GOOGLE_CLIENT_ID = "847231963218-dphsmff28lgnupm4bdg7iojmtvqj9qa1.apps.googleusercontent.com"
@@ -169,3 +170,24 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'hakimjumaev02@gmail.com'
 EMAIL_HOST_PASSWORD = config('APP_PASSWORD')
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+
+
+
+
+
+
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+
+# Настройки для Windows (используем solo pool вместо prefork)
+# ВАЖНО: На Windows запускайте Celery с флагом --pool=solo
+# celery -A core worker --pool=solo --loglevel=info
+
+# Оптимизация для множественных запросов
+CELERY_TASK_ACKS_LATE = True  # Задача подтверждается после выполнения
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Берет по одной задаче за раз (для solo pool)
+CELERY_TASK_REJECT_ON_WORKER_LOST = True  # Повторная отправка при потере worker
