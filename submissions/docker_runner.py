@@ -3,7 +3,10 @@
 """
 import subprocess
 import time
+import logging
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 # Настройки
 DOCKER_IMAGES = {
@@ -17,6 +20,42 @@ TIMEOUT = 2  # секунды
 MAX_OUTPUT = 64 * 1024  # 64 KB
 MAX_MEMORY = "256m"
 MAX_CPUS = "0.5"
+
+# Кэш для проверки доступности Docker
+_docker_available = None
+
+
+def _check_docker_available() -> bool:
+    """
+    Проверяет доступность Docker и кэширует результат
+    """
+    global _docker_available
+    if _docker_available is not None:
+        return _docker_available
+    
+    try:
+        result = subprocess.run(
+            ['docker', '--version'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2
+        )
+        if result.returncode == 0:
+            # Дополнительная проверка - попытка выполнить простую команду
+            result = subprocess.run(
+                ['docker', 'ps'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=2
+            )
+            _docker_available = result.returncode == 0
+        else:
+            _docker_available = False
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        logger.warning(f"Docker check failed: {e}")
+        _docker_available = False
+    
+    return _docker_available
 
 
 def run_code_in_docker(
@@ -45,6 +84,16 @@ def run_code_in_docker(
         }
     """
     lang = lang.lower()
+    
+    # Проверяем доступность Docker
+    if not _check_docker_available():
+        return {
+            'status': 'error',
+            'stdout': '',
+            'stderr': 'Docker недоступен. Убедитесь, что Docker запущен и доступен.',
+            'time': 0.0,
+            'returncode': -1
+        }
     
     # Определяем образ Docker
     image = DOCKER_IMAGES.get(lang)
@@ -96,6 +145,7 @@ def run_code_in_docker(
     start_time = time.time()
     
     try:
+        logger.debug(f"Running Docker command for lang={lang}, timeout={timeout}")
         result = subprocess.run(
             docker_cmd,
             input=input_data.encode() if input_data else None,
@@ -110,6 +160,7 @@ def run_code_in_docker(
         stderr = result.stderr[:MAX_OUTPUT].decode(errors='ignore').strip()
         
         if result.returncode != 0:
+            logger.warning(f"Docker execution failed: returncode={result.returncode}, stderr={stderr[:100]}")
             return {
                 'status': 'runtime_error',
                 'stdout': stdout,
@@ -118,6 +169,7 @@ def run_code_in_docker(
                 'returncode': result.returncode
             }
         
+        logger.debug(f"Docker execution successful: elapsed={elapsed}s")
         return {
             'status': 'ok',
             'stdout': stdout,
@@ -126,8 +178,25 @@ def run_code_in_docker(
             'returncode': result.returncode
         }
         
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         elapsed = round(time.time() - start_time, 3)
+        logger.warning(f"Docker execution timeout after {elapsed}s")
+        # Пытаемся убить зависший процесс
+        try:
+            if hasattr(e, 'process') and e.process:
+                e.process.kill()
+                # Ждем немного, чтобы процесс завершился
+                try:
+                    e.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    # Если процесс не завершился, принудительно убиваем
+                    e.process.terminate()
+                    try:
+                        e.process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        pass
+        except Exception as kill_error:
+            logger.warning(f"Error killing process: {kill_error}")
         return {
             'status': 'timeout',
             'stdout': '',
@@ -135,12 +204,23 @@ def run_code_in_docker(
             'time': elapsed,
             'returncode': -1
         }
-    except Exception as e:
+    except FileNotFoundError:
         elapsed = round(time.time() - start_time, 3)
+        logger.error("Docker command not found")
         return {
             'status': 'error',
             'stdout': '',
-            'stderr': str(e),
+            'stderr': 'Docker не установлен или не найден в PATH',
+            'time': elapsed,
+            'returncode': -1
+        }
+    except Exception as e:
+        elapsed = round(time.time() - start_time, 3)
+        logger.error(f"Docker execution error: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'stdout': '',
+            'stderr': f'Ошибка выполнения: {str(e)}',
             'time': elapsed,
             'returncode': -1
         }
@@ -156,6 +236,16 @@ def run_cpp_in_docker(
     Сначала компилирует, потом запускает
     Использует временную директорию внутри контейнера
     """
+    # Проверяем доступность Docker
+    if not _check_docker_available():
+        return {
+            'status': 'error',
+            'stdout': '',
+            'stderr': 'Docker недоступен. Убедитесь, что Docker запущен и доступен.',
+            'time': 0.0,
+            'returncode': -1
+        }
+    
     image = DOCKER_IMAGES.get('cpp')
     if not image:
         return {
@@ -192,6 +282,7 @@ fi
             'sh', '-c', compile_and_run_script
         ]
         
+        logger.debug(f"Running C++ Docker command, timeout={timeout}")
         result = subprocess.run(
             compile_and_run_cmd,
             input=input_data.encode() if input_data else None,
@@ -207,6 +298,7 @@ fi
         # Разделяем вывод компиляции и выполнения
         # Если есть ошибки компиляции, они будут в stderr
         if result.returncode != 0:
+            logger.warning(f"C++ Docker execution failed: returncode={result.returncode}, stderr={stderr[:100]}")
             return {
                 'status': 'runtime_error',
                 'stdout': stdout,
@@ -215,6 +307,7 @@ fi
                 'returncode': result.returncode
             }
         
+        logger.debug(f"C++ Docker execution successful: elapsed={elapsed}s")
         return {
             'status': 'ok',
             'stdout': stdout,
@@ -223,8 +316,25 @@ fi
             'returncode': result.returncode
         }
         
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         elapsed = round(time.time() - start_time, 3)
+        logger.warning(f"C++ Docker execution timeout after {elapsed}s")
+        # Пытаемся убить зависший процесс
+        try:
+            if hasattr(e, 'process') and e.process:
+                e.process.kill()
+                # Ждем немного, чтобы процесс завершился
+                try:
+                    e.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    # Если процесс не завершился, принудительно убиваем
+                    e.process.terminate()
+                    try:
+                        e.process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        pass
+        except Exception as kill_error:
+            logger.warning(f"Error killing C++ process: {kill_error}")
         return {
             'status': 'timeout',
             'stdout': '',
@@ -232,12 +342,23 @@ fi
             'time': elapsed,
             'returncode': -1
         }
-    except Exception as e:
+    except FileNotFoundError:
         elapsed = round(time.time() - start_time, 3)
+        logger.error("Docker command not found")
         return {
             'status': 'error',
             'stdout': '',
-            'stderr': str(e),
+            'stderr': 'Docker не установлен или не найден в PATH',
+            'time': elapsed,
+            'returncode': -1
+        }
+    except Exception as e:
+        elapsed = round(time.time() - start_time, 3)
+        logger.error(f"C++ Docker execution error: {e}", exc_info=True)
+        return {
+            'status': 'error',
+            'stdout': '',
+            'stderr': f'Ошибка выполнения: {str(e)}',
             'time': elapsed,
             'returncode': -1
         }

@@ -15,6 +15,20 @@ from datetime import timedelta
 MAX_CODE_LENGTH = 10000  # ограничение длины кода
 MAX_SUBMISSIONS_PER_MINUTE = 10  # лимит сабмитов в минуту для защиты от накрутки
 
+# Глобальный пул потоков для выполнения задач проверки кода
+from concurrent.futures import ThreadPoolExecutor
+import atexit
+_executor = None
+
+def get_executor():
+    """Получает или создает глобальный ThreadPoolExecutor"""
+    global _executor
+    if _executor is None:
+        _executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="submission_check")
+        # Регистрируем закрытие при выходе
+        atexit.register(lambda: _executor.shutdown(wait=False))
+    return _executor
+
 @swagger_auto_schema(
     method='post',
     request_body=openapi.Schema(
@@ -57,12 +71,14 @@ def submit_code(request):
         return Response({"error": "Code too long"}, status=400)
 
     try:
-        task = Task.objects.get(id=task_id)
+        # Используем select_related для оптимизации запросов
+        task = Task.objects.select_related('module__course').get(id=task_id)
     except Task.DoesNotExist:
         return Response({"error": "Task not found"}, status=404)
 
     # Проверка записи на курс (как раньше - для всех курсов, включая олимпиады)
     course = task.module.course
+    # Используем exists() для быстрой проверки без загрузки объекта
     if not Enrollment.objects.filter(user=request.user, course=course).exists():
         return Response({"error": "Not enrolled"}, status=403)
 
@@ -85,6 +101,7 @@ def submit_code(request):
         
         # Защита от накрутки: проверка лимита сабмитов в минуту
         one_minute_ago = now - timedelta(minutes=1)
+        # Используем select_related для оптимизации и только count() без загрузки объектов
         recent_submissions_count = Submission.objects.filter(
             user=request.user,
             task__module__course=course,
@@ -108,37 +125,37 @@ def submit_code(request):
         lang=lang
     )
 
-    # Запускаем проверку кода через Celery (асинхронно)
+    # Запускаем проверку кода в фоновом потоке через ThreadPoolExecutor
+    # Это ограничивает количество одновременных задач и предотвращает перегрузку
     import logging
     logger = logging.getLogger(__name__)
     
-    try:
-        logger.info(f"Submitting code check task to Celery for submission_id={submission.id}")
-        # Асинхронный вызов через Celery
-        submit_code_task.delay(submission.id)
-        # Возвращаем сразу, статус будет обновлён Celery worker'ом
-    except Exception as celery_error:
-        # Если Celery недоступен, выполняем синхронно как fallback
-        logger.warning(f"Celery not available, executing synchronously: {celery_error}")
+    # Функция для выполнения задачи в фоне
+    def run_task_directly():
         try:
-            submit_code_task(submission.id)
-            submission.refresh_from_db()
+            from submissions.tasks import execute_submission_check
+            execute_submission_check(submission.id)
         except Exception as sync_error:
-            logger.error(f"Error in synchronous execution: {sync_error}", exc_info=True)
+            logger.error(f"Error in background execution: {sync_error}", exc_info=True)
             import traceback
-            submission.status = 'error'
-            submission.feedback = f'Ошибка выполнения: {str(sync_error)}'
-            submission.errors = [{"error": str(sync_error), "traceback": traceback.format_exc()}]
-            submission.save()
-
-    # Обновляем submission из БД, чтобы получить актуальный статус
-    submission.refresh_from_db()
+            try:
+                submission.refresh_from_db()
+                submission.status = 'error'
+                submission.feedback = f'Ошибка выполнения: {str(sync_error)}'
+                submission.errors = [{"error": str(sync_error), "traceback": traceback.format_exc()}]
+                submission.save()
+            except Exception as save_error:
+                logger.error(f"Error saving submission error: {save_error}")
     
-    # Возвращаем submission_id и текущий статус
+    # Отправляем задачу в пул потоков (не блокируем ответ)
+    executor = get_executor()
+    executor.submit(run_task_directly)
+
+    # Возвращаем submission_id и текущий статус сразу (не ждем выполнения)
     return Response({
         "submission_id": submission.id,
         "status": submission.status
-    }, status=202 if submission.status == "pending" else 200)
+    }, status=202)
 
 
 
@@ -275,7 +292,8 @@ def get_submission(request, submission_id):
     Получает результат проверки кода по ID submission
     """
     try:
-        submission = Submission.objects.get(id=submission_id, user=request.user)
+        # Используем select_related для оптимизации - загружаем task одним запросом
+        submission = Submission.objects.select_related('task', 'user').get(id=submission_id, user=request.user)
         
         return Response({
             "id": submission.id,

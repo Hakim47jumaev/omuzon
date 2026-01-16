@@ -191,3 +191,41 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_ACKS_LATE = True  # Задача подтверждается после выполнения
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Берет по одной задаче за раз (для solo pool)
 CELERY_TASK_REJECT_ON_WORKER_LOST = True  # Повторная отправка при потере worker
+
+# Таймауты для задач (в секундах)
+CELERY_TASK_TIME_LIMIT = 60  # Жесткий таймаут - задача будет убита
+CELERY_TASK_SOFT_TIME_LIMIT = 50  # Мягкий таймаут - задача получит исключение
+
+# Логирование
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'submissions': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
