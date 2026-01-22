@@ -93,7 +93,7 @@ def _docker_run_sh(image: str, sh_script: str, input_data: str, timeout: int) ->
     docker_cmd = [
         "docker", "run", "--rm", "-i",
         "--network=none",
-        "--read-only",
+         
 
         # /work writable сразу (без chmod внутри контейнера)
         f"--tmpfs=/work:rw,nosuid,nodev,mode=1777,size={WORK_SIZE}",
@@ -195,34 +195,32 @@ dart run /work/main.dart
 def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
     # returncode=100 -> compile_error
     script = f"""\
-cat > /work/main.cpp <<'CPPEOF'
+cat > /app/main.cpp <<'CPPEOF'
 {code}
 CPPEOF
 
-# компилируем в /tmp (exec разрешён)
-g++ /work/main.cpp -O2 -std=c++17 -o /tmp/a.out || exit 100
+g++ /app/main.cpp -O2 -std=c++17 -o /app/a.out || exit 100
 
-# запускаем из /tmp
-/tmp/a.out
+/app/a.out
 """
     return _docker_run_sh(DOCKER_IMAGES["cpp"], script, input_data, timeout)
 
 
-def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> Dict:
     """
-    Ожидается полный Program.cs.
+    Full Program.cs expected.
     returncode=101 -> compile_error
     """
     script = f"""\
-export DOTNET_CLI_HOME=/work/dotnet
-export NUGET_PACKAGES=/work/nuget
-export HOME=/work
+export DOTNET_CLI_HOME=/app/dotnet
+export NUGET_PACKAGES=/app/nuget
+export HOME=/app
 
-cat > /work/Program.cs <<'CSEOF'
+cat > /app/Program.cs <<'CSEOF'
 {code}
 CSEOF
 
-cat > /work/App.csproj <<'CSPROJEOF'
+cat > /app/App.csproj <<'CSPROJEOF'
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -233,8 +231,8 @@ cat > /work/App.csproj <<'CSPROJEOF'
 </Project>
 CSPROJEOF
 
-dotnet build -nologo -v:q /work/App.csproj || exit 101
-dotnet run -nologo --project /work/App.csproj
+dotnet build -nologo -v:q /app/App.csproj || exit 101
+dotnet run -nologo --project /app/App.csproj
 """
     return _docker_run_sh(DOCKER_IMAGES["csharp"], script, input_data, timeout)
 
