@@ -1,4 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0
+
 RUN useradd -m  runner
-WORKDIR /work
+
+# создать /app и выдать права
+RUN mkdir -p /app && chown -R runner:runner /app
+
+WORKDIR /app
 USER runner
+
+CMD ["bash"]
