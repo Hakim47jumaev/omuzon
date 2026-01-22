@@ -3,18 +3,20 @@ docker_runner.py
 
 Безопасный запуск кода в Docker (python/js/dart/cpp/csharp)
 
-Особенности:
-- Код пишется в /work (tmpfs), затем запускается.
-- stdin (input_data) работает для всех языков.
-- Ограничения: no network, read-only root, tmpfs /work, лимиты CPU/RAM.
-- Единый формат результата:
-  {
-    "status": "ok" | "compile_error" | "runtime_error" | "timeout" | "error",
-    "stdout": str,
-    "stderr": str,
-    "time": float,
-    "returncode": int
-  }
+Единый формат результата:
+{
+  "status": "ok" | "compile_error" | "runtime_error" | "timeout" | "error",
+  "stdout": str,
+  "stderr": str,
+  "time": float,
+  "returncode": int
+}
+
+Важно:
+- Root FS read-only
+- no network
+- tmpfs /work writable (для файлов + бинарников), права выставляем chmod 1777
+- лимиты CPU/RAM
 """
 import subprocess
 import time
@@ -55,7 +57,6 @@ def _check_docker_available() -> bool:
     global _docker_available
     if _docker_available is not None:
         return _docker_available
-
     try:
         r1 = subprocess.run(
             ["docker", "--version"],
@@ -89,16 +90,17 @@ def _clip(s: str) -> str:
 
 
 def _docker_run_sh(image: str, sh_script: str, input_data: str, timeout: int) -> Dict:
-    """
-    Запуск sh-скрипта внутри контейнера.
-    /work writable (tmpfs) и EXECUTABLE (без noexec), иначе C++/C# не запустятся.
-    """
     docker_cmd = [
         "docker", "run", "--rm", "-i",
         "--network=none",
         "--read-only",
-        f"--tmpfs=/work:rw,nosuid,nodev,size={WORK_SIZE}",             # <-- без noexec
-        f"--tmpfs=/tmp:rw,nosuid,nodev,noexec,size={TMP_SIZE}",
+
+        # /work writable сразу (без chmod внутри контейнера)
+        f"--tmpfs=/work:rw,nosuid,nodev,mode=1777,size={WORK_SIZE}",
+          
+        # /tmp тоже writable
+        f"--tmpfs=/tmp:rw,nosuid,nodev,size={TMP_SIZE}",
+
         f"--memory={MAX_MEMORY}",
         f"--cpus={MAX_CPUS}",
         "--pids-limit=128",
@@ -120,8 +122,8 @@ def _docker_run_sh(image: str, sh_script: str, input_data: str, timeout: int) ->
         )
         elapsed = round(time.time() - start_time, 3)
 
-        stdout = _clip((res.stdout or "").strip())
-        stderr = _clip((res.stderr or "").strip())
+        stdout = (res.stdout or "")[:MAX_OUTPUT].strip()
+        stderr = (res.stderr or "")[:MAX_OUTPUT].strip()
 
         if res.returncode == 0:
             return {
@@ -132,7 +134,6 @@ def _docker_run_sh(image: str, sh_script: str, input_data: str, timeout: int) ->
                 "returncode": res.returncode,
             }
 
-        # Специальные коды: compile_error для C++/C#
         if res.returncode in (100, 101):
             return {
                 "status": "compile_error",
@@ -156,25 +157,6 @@ def _docker_run_sh(image: str, sh_script: str, input_data: str, timeout: int) ->
             "status": "timeout",
             "stdout": "",
             "stderr": f"Execution timeout after {timeout}s",
-            "time": elapsed,
-            "returncode": -1,
-        }
-    except FileNotFoundError:
-        elapsed = round(time.time() - start_time, 3)
-        return {
-            "status": "error",
-            "stdout": "",
-            "stderr": "Docker не установлен или не найден в PATH",
-            "time": elapsed,
-            "returncode": -1,
-        }
-    except Exception as e:
-        elapsed = round(time.time() - start_time, 3)
-        logger.error(f"Docker execution error: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "stdout": "",
-            "stderr": f"Ошибка выполнения: {str(e)}",
             "time": elapsed,
             "returncode": -1,
         }
@@ -216,8 +198,12 @@ def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -
 cat > /work/main.cpp <<'CPPEOF'
 {code}
 CPPEOF
-g++ /work/main.cpp -O2 -std=c++17 -o /work/a.out || exit 100
-/work/a.out
+
+# компилируем в /tmp (exec разрешён)
+g++ /work/main.cpp -O2 -std=c++17 -o /tmp/a.out || exit 100
+
+# запускаем из /tmp
+/tmp/a.out
 """
     return _docker_run_sh(DOCKER_IMAGES["cpp"], script, input_data, timeout)
 
@@ -225,7 +211,7 @@ g++ /work/main.cpp -O2 -std=c++17 -o /work/a.out || exit 100
 def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
     """
     Ожидается полный Program.cs.
-    returncode=101 -> compile_error (dotnet build failed)
+    returncode=101 -> compile_error
     """
     script = f"""\
 export DOTNET_CLI_HOME=/work/dotnet
