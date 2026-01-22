@@ -1,364 +1,301 @@
 """
-Модуль для безопасного выполнения кода в Docker контейнерах
+docker_runner.py
+
+Безопасный запуск кода в Docker (python/js/dart/cpp/csharp)
+
+Особенности:
+- Код пишется в /work (tmpfs), затем запускается.
+- stdin (input_data) работает для всех языков.
+- Ограничения: no network, read-only root, tmpfs /work, лимиты CPU/RAM.
+- Единый формат результата:
+  {
+    "status": "ok" | "compile_error" | "runtime_error" | "timeout" | "error",
+    "stdout": str,
+    "stderr": str,
+    "time": float,
+    "returncode": int
+  }
 """
 import subprocess
 import time
 import logging
-from typing import Dict, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 
-# Настройки
 DOCKER_IMAGES = {
-    'python': 'code-runner-python',
-    'javascript': 'code-runner-node',  # нужно будет создать
-    'cpp': 'code-runner-cpp',  # нужно будет создать
-    'c++': 'code-runner-cpp',
+    "python": "code-runner-python",
+    "py": "code-runner-python",
+
+    "javascript": "code-runner-node",
+    "js": "code-runner-node",
+    "node": "code-runner-node",
+
+    "dart": "code-runner-dart",
+
+    "cpp": "code-runner-cpp",
+    "c++": "code-runner-cpp",
+
+    "csharp": "code-runner-csharp",
+    "c#": "code-runner-csharp",
+    "cs": "code-runner-csharp",
 }
 
-TIMEOUT = 2  # секунды
+TIMEOUT = 2  # seconds
 MAX_OUTPUT = 64 * 1024  # 64 KB
 MAX_MEMORY = "256m"
 MAX_CPUS = "0.5"
+WORK_SIZE = "200m"
+TMP_SIZE = "100m"
 
-# Кэш для проверки доступности Docker
 _docker_available = None
 
 
 def _check_docker_available() -> bool:
-    """
-    Проверяет доступность Docker и кэширует результат
-    """
     global _docker_available
     if _docker_available is not None:
         return _docker_available
-    
+
     try:
-        result = subprocess.run(
-            ['docker', '--version'],
+        r1 = subprocess.run(
+            ["docker", "--version"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=2
+            timeout=2,
         )
-        if result.returncode == 0:
-            # Дополнительная проверка - попытка выполнить простую команду
-            result = subprocess.run(
-                ['docker', 'ps'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=2
-            )
-            _docker_available = result.returncode == 0
-        else:
+        if r1.returncode != 0:
             _docker_available = False
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            return _docker_available
+
+        r2 = subprocess.run(
+            ["docker", "ps"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=2,
+        )
+        _docker_available = (r2.returncode == 0)
+        return _docker_available
+    except Exception as e:
         logger.warning(f"Docker check failed: {e}")
         _docker_available = False
-    
-    return _docker_available
+        return _docker_available
 
 
-def run_code_in_docker(
-    code: str,
-    lang: str,
-    input_data: str = "",
-    timeout: int = TIMEOUT
-) -> Dict:
+def _clip(s: str) -> str:
+    s = s or ""
+    if len(s) > MAX_OUTPUT:
+        return s[:MAX_OUTPUT]
+    return s
+
+
+def _docker_run_sh(image: str, sh_script: str, input_data: str, timeout: int) -> Dict:
     """
-    Выполняет код в изолированном Docker контейнере
-    
-    Args:
-        code: Код для выполнения
-        lang: Язык программирования (python, javascript, cpp)
-        input_data: Входные данные для программы
-        timeout: Таймаут выполнения в секундах
-    
-    Returns:
-        Словарь с результатами:
-        {
-            'status': 'ok' | 'runtime_error' | 'timeout' | 'error',
-            'stdout': str,
-            'stderr': str,
-            'time': float,
-            'returncode': int
-        }
+    Запуск sh-скрипта внутри контейнера.
+    /work writable (tmpfs) и EXECUTABLE (без noexec), иначе C++/C# не запустятся.
     """
-    lang = lang.lower()
-    
-    # Проверяем доступность Docker
-    if not _check_docker_available():
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': 'Docker недоступен. Убедитесь, что Docker запущен и доступен.',
-            'time': 0.0,
-            'returncode': -1
-        }
-    
-    # Определяем образ Docker
-    image = DOCKER_IMAGES.get(lang)
-    if not image:
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': f'Язык {lang} не поддерживается',
-            'time': 0.0,
-            'returncode': -1
-        }
-    
-    # Формируем команду для Docker
-    if lang == 'python':
-        cmd = ['python3', '-c', code]
-    elif lang == 'javascript':
-        cmd = ['node', '-e', code]
-    elif lang in ('cpp', 'c++'):
-        # Для C++ нужно сначала скомпилировать, потом запустить
-        # Это будет обработано отдельно
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': 'C++ требует отдельной обработки (компиляция)',
-            'time': 0.0,
-            'returncode': -1
-        }
-    else:
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': f'Язык {lang} не поддерживается',
-            'time': 0.0,
-            'returncode': -1
-        }
-    
-    # Docker команда с ограничениями безопасности
     docker_cmd = [
-        'docker', 'run', '--rm', '-i',
-        '--network=none',  # нет сети
-        '--read-only',  # только чтение
-        '--tmpfs=/tmp:rw,noexec,nosuid,size=100m',  # временная файловая система для /tmp
-        f'--memory={MAX_MEMORY}',  # лимит памяти
-        f'--cpus={MAX_CPUS}',  # лимит CPU
-        '--user=runner',  # непривилегированный пользователь
-        image
-    ] + cmd
-    
+        "docker", "run", "--rm", "-i",
+        "--network=none",
+        "--read-only",
+        f"--tmpfs=/work:rw,nosuid,nodev,size={WORK_SIZE}",             # <-- без noexec
+        f"--tmpfs=/tmp:rw,nosuid,nodev,noexec,size={TMP_SIZE}",
+        f"--memory={MAX_MEMORY}",
+        f"--cpus={MAX_CPUS}",
+        "--pids-limit=128",
+        "--user=runner",
+        "-w", "/work",
+        image,
+        "sh", "-lc", sh_script,
+    ]
+
     start_time = time.time()
-    
     try:
-        logger.debug(f"Running Docker command for lang={lang}, timeout={timeout}")
-        result = subprocess.run(
+        res = subprocess.run(
             docker_cmd,
-            input=input_data.encode() if input_data else None,
+            input=(input_data or ""),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=timeout
+            timeout=timeout,
+            text=True,
         )
-        
         elapsed = round(time.time() - start_time, 3)
-        
-        stdout = result.stdout[:MAX_OUTPUT].decode(errors='ignore').strip()
-        stderr = result.stderr[:MAX_OUTPUT].decode(errors='ignore').strip()
-        
-        if result.returncode != 0:
-            logger.warning(f"Docker execution failed: returncode={result.returncode}, stderr={stderr[:100]}")
+
+        stdout = _clip((res.stdout or "").strip())
+        stderr = _clip((res.stderr or "").strip())
+
+        if res.returncode == 0:
             return {
-                'status': 'runtime_error',
-                'stdout': stdout,
-                'stderr': stderr,
-                'time': elapsed,
-                'returncode': result.returncode
+                "status": "ok",
+                "stdout": stdout,
+                "stderr": stderr,
+                "time": elapsed,
+                "returncode": res.returncode,
             }
-        
-        logger.debug(f"Docker execution successful: elapsed={elapsed}s")
+
+        # Специальные коды: compile_error для C++/C#
+        if res.returncode in (100, 101):
+            return {
+                "status": "compile_error",
+                "stdout": stdout,
+                "stderr": stderr,
+                "time": elapsed,
+                "returncode": res.returncode,
+            }
+
         return {
-            'status': 'ok',
-            'stdout': stdout,
-            'stderr': stderr,
-            'time': elapsed,
-            'returncode': result.returncode
+            "status": "runtime_error",
+            "stdout": stdout,
+            "stderr": stderr,
+            "time": elapsed,
+            "returncode": res.returncode,
         }
-        
-    except subprocess.TimeoutExpired as e:
+
+    except subprocess.TimeoutExpired:
         elapsed = round(time.time() - start_time, 3)
-        logger.warning(f"Docker execution timeout after {elapsed}s")
-        # Пытаемся убить зависший процесс
-        try:
-            if hasattr(e, 'process') and e.process:
-                e.process.kill()
-                # Ждем немного, чтобы процесс завершился
-                try:
-                    e.process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    # Если процесс не завершился, принудительно убиваем
-                    e.process.terminate()
-                    try:
-                        e.process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        pass
-        except Exception as kill_error:
-            logger.warning(f"Error killing process: {kill_error}")
         return {
-            'status': 'timeout',
-            'stdout': '',
-            'stderr': f'Execution timeout after {timeout}s',
-            'time': elapsed,
-            'returncode': -1
+            "status": "timeout",
+            "stdout": "",
+            "stderr": f"Execution timeout after {timeout}s",
+            "time": elapsed,
+            "returncode": -1,
         }
     except FileNotFoundError:
         elapsed = round(time.time() - start_time, 3)
-        logger.error("Docker command not found")
         return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': 'Docker не установлен или не найден в PATH',
-            'time': elapsed,
-            'returncode': -1
+            "status": "error",
+            "stdout": "",
+            "stderr": "Docker не установлен или не найден в PATH",
+            "time": elapsed,
+            "returncode": -1,
         }
     except Exception as e:
         elapsed = round(time.time() - start_time, 3)
         logger.error(f"Docker execution error: {e}", exc_info=True)
         return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': f'Ошибка выполнения: {str(e)}',
-            'time': elapsed,
-            'returncode': -1
+            "status": "error",
+            "stdout": "",
+            "stderr": f"Ошибка выполнения: {str(e)}",
+            "time": elapsed,
+            "returncode": -1,
         }
 
 
-def run_cpp_in_docker(
-    code: str,
-    input_data: str = "",
-    timeout: int = TIMEOUT
-) -> Dict:
-    """
-    Выполняет C++ код в Docker контейнере
-    Сначала компилирует, потом запускает
-    Использует временную директорию внутри контейнера
-    """
-    # Проверяем доступность Docker
-    if not _check_docker_available():
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': 'Docker недоступен. Убедитесь, что Docker запущен и доступен.',
-            'time': 0.0,
-            'returncode': -1
-        }
-    
-    image = DOCKER_IMAGES.get('cpp')
-    if not image:
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': 'C++ образ не найден',
-            'time': 0.0,
-            'returncode': -1
-        }
-    
-    start_time = time.time()
-    
-    try:
-        # Компилируем и запускаем в одной команде
-        # Используем /tmp для записи через --tmpfs
-        # Передаем код через stdin для компиляции
-        compile_and_run_script = f'''
-g++ -x c++ - -o /tmp/a.out 2>&1 <<'CPPEOF'
+def run_python_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+    script = f"""\
+cat > /work/main.py <<'PYEOF'
+{code}
+PYEOF
+python3 /work/main.py
+"""
+    return _docker_run_sh(DOCKER_IMAGES["python"], script, input_data, timeout)
+
+
+def run_js_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+    script = f"""\
+cat > /work/main.js <<'JSEOF'
+{code}
+JSEOF
+node /work/main.js
+"""
+    return _docker_run_sh(DOCKER_IMAGES["javascript"], script, input_data, timeout)
+
+
+def run_dart_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+    script = f"""\
+cat > /work/main.dart <<'DARTEOF'
+{code}
+DARTEOF
+dart run /work/main.dart
+"""
+    return _docker_run_sh(DOCKER_IMAGES["dart"], script, input_data, timeout)
+
+
+def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+    # returncode=100 -> compile_error
+    script = f"""\
+cat > /work/main.cpp <<'CPPEOF'
 {code}
 CPPEOF
-if [ $? -eq 0 ]; then
-    /tmp/a.out
-fi
-'''
-        
-        compile_and_run_cmd = [
-            'docker', 'run', '--rm', '-i',
-            '--network=none',
-            '--tmpfs=/tmp:rw,noexec,nosuid,size=100m',  # временная файловая система
-            f'--memory={MAX_MEMORY}',
-            f'--cpus={MAX_CPUS}',
-            '--user=runner',
-            image,
-            'sh', '-c', compile_and_run_script
-        ]
-        
-        logger.debug(f"Running C++ Docker command, timeout={timeout}")
-        result = subprocess.run(
-            compile_and_run_cmd,
-            input=input_data.encode() if input_data else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout
-        )
-        
-        elapsed = round(time.time() - start_time, 3)
-        stdout = result.stdout[:MAX_OUTPUT].decode(errors='ignore').strip()
-        stderr = result.stderr[:MAX_OUTPUT].decode(errors='ignore').strip()
-        
-        # Разделяем вывод компиляции и выполнения
-        # Если есть ошибки компиляции, они будут в stderr
-        if result.returncode != 0:
-            logger.warning(f"C++ Docker execution failed: returncode={result.returncode}, stderr={stderr[:100]}")
-            return {
-                'status': 'runtime_error',
-                'stdout': stdout,
-                'stderr': stderr,
-                'time': elapsed,
-                'returncode': result.returncode
-            }
-        
-        logger.debug(f"C++ Docker execution successful: elapsed={elapsed}s")
+g++ /work/main.cpp -O2 -std=c++17 -o /work/a.out || exit 100
+/work/a.out
+"""
+    return _docker_run_sh(DOCKER_IMAGES["cpp"], script, input_data, timeout)
+
+
+def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+    """
+    Ожидается полный Program.cs.
+    returncode=101 -> compile_error (dotnet build failed)
+    """
+    script = f"""\
+export DOTNET_CLI_HOME=/work/dotnet
+export NUGET_PACKAGES=/work/nuget
+export HOME=/work
+
+cat > /work/Program.cs <<'CSEOF'
+{code}
+CSEOF
+
+cat > /work/App.csproj <<'CSPROJEOF'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+CSPROJEOF
+
+dotnet build -nologo -v:q /work/App.csproj || exit 101
+dotnet run -nologo --project /work/App.csproj
+"""
+    return _docker_run_sh(DOCKER_IMAGES["csharp"], script, input_data, timeout)
+
+
+def run_code_in_docker(code: str, lang: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
+    """
+    Универсальная точка входа.
+    """
+    lang = (lang or "").lower().strip()
+
+    if not _check_docker_available():
         return {
-            'status': 'ok',
-            'stdout': stdout,
-            'stderr': stderr,
-            'time': elapsed,
-            'returncode': result.returncode
+            "status": "error",
+            "stdout": "",
+            "stderr": "Docker недоступен. Убедитесь, что Docker запущен и доступен.",
+            "time": 0.0,
+            "returncode": -1,
         }
-        
-    except subprocess.TimeoutExpired as e:
-        elapsed = round(time.time() - start_time, 3)
-        logger.warning(f"C++ Docker execution timeout after {elapsed}s")
-        # Пытаемся убить зависший процесс
-        try:
-            if hasattr(e, 'process') and e.process:
-                e.process.kill()
-                # Ждем немного, чтобы процесс завершился
-                try:
-                    e.process.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    # Если процесс не завершился, принудительно убиваем
-                    e.process.terminate()
-                    try:
-                        e.process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                        pass
-        except Exception as kill_error:
-            logger.warning(f"Error killing C++ process: {kill_error}")
+
+    if lang not in DOCKER_IMAGES:
         return {
-            'status': 'timeout',
-            'stdout': '',
-            'stderr': f'Execution timeout after {timeout}s',
-            'time': elapsed,
-            'returncode': -1
+            "status": "error",
+            "stdout": "",
+            "stderr": f"Язык {lang} не поддерживается",
+            "time": 0.0,
+            "returncode": -1,
         }
-    except FileNotFoundError:
-        elapsed = round(time.time() - start_time, 3)
-        logger.error("Docker command not found")
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': 'Docker не установлен или не найден в PATH',
-            'time': elapsed,
-            'returncode': -1
-        }
-    except Exception as e:
-        elapsed = round(time.time() - start_time, 3)
-        logger.error(f"C++ Docker execution error: {e}", exc_info=True)
-        return {
-            'status': 'error',
-            'stdout': '',
-            'stderr': f'Ошибка выполнения: {str(e)}',
-            'time': elapsed,
-            'returncode': -1
-        }
+
+    if lang in ("python", "py"):
+        return run_python_in_docker(code, input_data, timeout)
+
+    if lang in ("javascript", "js", "node"):
+        return run_js_in_docker(code, input_data, timeout)
+
+    if lang == "dart":
+        return run_dart_in_docker(code, input_data, timeout)
+
+    if lang in ("cpp", "c++"):
+        return run_cpp_in_docker(code, input_data, timeout)
+
+    if lang in ("csharp", "c#", "cs"):
+        return run_csharp_in_docker(code, input_data, timeout)
+
+    return {
+        "status": "error",
+        "stdout": "",
+        "stderr": f"Язык {lang} не поддерживается",
+        "time": 0.0,
+        "returncode": -1,
+    }
