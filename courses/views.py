@@ -167,7 +167,7 @@ class ModuleDetailView(generics.RetrieveAPIView):
 
 # ==================== ДЕТАЛЬ ЗАДАЧИ ====================
 class TaskDetailView(generics.RetrieveAPIView):
-    queryset = Task.objects.all()
+    queryset = Task.objects.all().prefetch_related('testcases')
     serializer_class = TaskSerializer
     permission_classes = [permissions.AllowAny]
 

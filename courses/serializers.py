@@ -45,6 +45,16 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved', 'last_submission', 'my_submissions','testcases']
 
+
+    def get_testcases(self, obj):
+        qs = obj.testcases.filter(is_active=True).order_by('order')
+        n = obj.show_count or 0
+        if n > 0:
+            qs = qs[:n]
+        else:
+            qs = qs.none()
+        return TestCaseSerializer(qs, many=True).data
+
     def get_is_solved(self, obj):
         user = self.context['request'].user
         if not user.is_authenticated:

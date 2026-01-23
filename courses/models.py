@@ -66,6 +66,7 @@ class Task(models.Model):
     description = models.TextField(blank=True)
     task_text = models.TextField()  # текст задачи
     order = models.PositiveIntegerField(default=1)
+    show_count = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f"{self.module.title} - {self.title}"
