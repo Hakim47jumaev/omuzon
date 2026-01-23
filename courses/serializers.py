@@ -39,7 +39,7 @@ class TaskSerializer(serializers.ModelSerializer):
     is_solved = serializers.SerializerMethodField()
     last_submission = serializers.SerializerMethodField()
     my_submissions = serializers.SerializerMethodField()
-    testcases = TestCaseSerializer(many=True, read_only=True)
+    testcases = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
