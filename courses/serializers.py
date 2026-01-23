@@ -43,16 +43,18 @@ class TaskSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Task
-        fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved', 'last_submission', 'my_submissions','testcases']
+        fields = ['id', 'title', 'description', 'task_text', 'order', 'is_solved','testcases' ,'last_submission', 'my_submissions']
 
 
     def get_testcases(self, obj):
+        n = int(obj.show_count or 0)
+
         qs = obj.testcases.filter(is_active=True).order_by('order')
-        n = obj.show_count or 0
-        if n > 0:
-            qs = qs[:n]
-        else:
-            qs = qs.none()
+
+        if n <= 0:
+            return []
+
+        qs = qs[:n]
         return TestCaseSerializer(qs, many=True).data
 
     def get_is_solved(self, obj):
