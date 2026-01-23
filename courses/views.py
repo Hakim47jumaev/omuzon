@@ -249,151 +249,136 @@ class CourseDeleteView(generics.DestroyAPIView):
     serializer_class = LightCourseSerializer
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrReadOnly]
 
+from datetime import timedelta
+from django.db.models import (
+    Q, F, Value, IntegerField,
+    Count, Max, Sum, Case, When
+)
+from django.db.models.functions import Coalesce
+from django.db.models.expressions import OrderBy
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import permissions, status
 
-# ==================== ЛИДЕРБОРД ОЛИМПИАДЫ ====================
+
 class OlimpiadLeaderboardView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    @swagger_auto_schema(
-        responses={
-            200: openapi.Response(
-                description="Лидерборд олимпиады",
-                examples={
-                    "application/json": {
-                        "course": {
-                            "id": 1,
-                            "title": "Олимпиада по программированию",
-                            "is_olimpiad": True,
-                            "start_time": "2024-01-01T10:00:00Z",
-                            "end_time": "2024-01-01T12:00:00Z"
-                        },
-                        "leaderboard": [
-                            {
-                                "rank": 1,
-                                "user_id": 1,
-                                "username": "user1",
-                                "solved_count": 5,
-                                "submission_count": 8,
-                                "last_accepted_at": "2024-01-01T11:30:00Z"
-                            }
-                        ]
-                    }
-                }
-            ),
-            400: "Курс не является олимпиадой",
-            404: "Курс не найден"
-        }
-    )
     def get(self, request, course_id):
-        """
-        Получить лидерборд олимпиады.
-        Сортировка: больше решённых задач → меньше попыток → раньше последний ACCEPTED
-        """
         try:
             course = Course.objects.get(id=course_id)
         except Course.DoesNotExist:
-            return Response(
-                {"error": "Курс не найден"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Курс не найден"}, status=status.HTTP_404_NOT_FOUND)
 
-        if not course.is_olimpiad:
-            return Response(
-                {"error": "Этот курс не является олимпиадой"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Получаем всех пользователей, у которых есть сабмиты по задачам этого курса
-        # Это более правильно для олимпиады - если кто-то отправил решение, он должен быть в лидерборде
         from django.contrib.auth import get_user_model
         User = get_user_model()
-        
-        # Получаем уникальных пользователей, у которых есть сабмиты по задачам курса
-        # Django создаёт обратную связь с именем 'submission' (единственное число)
-        users_with_submissions = User.objects.filter(
-            submission__task__module__course=course
-        ).distinct()
-        
-        leaderboard_data = []
+
         now = timezone.now()
-        
-        for user in users_with_submissions:
-            # Получаем все сабмиты пользователя по задачам этого курса
-            # Только те, что сделаны внутри времени олимпиады
-            submissions = Submission.objects.filter(
-                user=user,
-                task__module__course=course
-            ).select_related('task')
-            
-            # Фильтруем по времени олимпиады
-            if course.start_time:
-                submissions = submissions.filter(created_at__gte=course.start_time)
-            if course.end_time:
-                submissions = submissions.filter(created_at__lte=course.end_time)
-            
-            # Если после фильтрации по времени нет сабмитов, пропускаем пользователя
-            if not submissions.exists():
-                continue
-            
-            # Находим решённые задачи (есть хотя бы один ACCEPTED)
-            solved_task_ids = set()
-            last_accepted_times = {}  # время последнего ACCEPTED для каждой задачи
-            
-            for sub in submissions:
-                if sub.status == 'accepted':
-                    solved_task_ids.add(sub.task_id)
-                    # Обновляем время последнего ACCEPTED для этой задачи
-                    if sub.task_id not in last_accepted_times or \
-                       sub.created_at > last_accepted_times[sub.task_id]:
-                        last_accepted_times[sub.task_id] = sub.created_at
-            
-            solved_count = len(solved_task_ids)
-            
-            # Считаем submission_count только по решённым задачам
-            submission_count = 0
-            if solved_task_ids:
-                submission_count = submissions.filter(
-                    task_id__in=solved_task_ids
-                ).count()
-            
-            # Время последнего ACCEPTED среди всех решённых задач
-            last_accepted_at = None
-            if last_accepted_times:
-                last_accepted_at = max(last_accepted_times.values())
-            
-            leaderboard_data.append({
-                'user_id': user.id,
-                'username': user.username,
-                'solved_count': solved_count,
-                'submission_count': submission_count,
-                'last_accepted_at': last_accepted_at
-            })
-        
-        # Сортировка:
-        # 1. Больше solved_count - выше
-        # 2. При равенстве - меньше submission_count - выше
-        # 3. При равенстве - раньше last_accepted_at - выше
-        # Если last_accepted_at None, ставим в конец (далекое будущее)
-        leaderboard_data.sort(
-            key=lambda x: (
-                -x['solved_count'],  # больше = выше (отрицание для сортировки по убыванию)
-                x['submission_count'],  # меньше = выше
-                x['last_accepted_at'] if x['last_accepted_at'] else timezone.now() + timedelta(days=365)  # раньше = выше, None = в конец
+
+        # --- cutoff_time (для олимпиады делаем freeze-snapshot) ---
+        cutoff_time = now
+
+        if course.is_olimpiad and course.end_time:
+            freeze_point = course.end_time - timedelta(minutes=30)
+
+            if now >= course.end_time:
+                # финальные результаты
+                cutoff_time = course.end_time
+            elif now >= freeze_point:
+                # последние 30 минут -> snapshot на момент freeze_point
+                cutoff_time = freeze_point
+            else:
+                # до freeze зоны -> актуально на сейчас
+                cutoff_time = now
+
+        # --- фильтр сабмитов ---
+        sub_filter = Q(task__module__course=course)
+
+        # если олимпиада — обязательно в окне времени
+        if course.is_olimpiad:
+            sub_filter &= Q(created_at__gte=course.start_time)
+            sub_filter &= Q(created_at__lte=cutoff_time)
+        else:
+            # обычный курс: можно считать за всё время
+            # (если хочешь ограничить с момента старта курса — добавь created_at__gte=course.start_time)
+            sub_filter &= Q(created_at__lte=now)
+
+        task_stats = (
+            Submission.objects
+            .filter(sub_filter)
+            .values("user_id", "task_id")
+            .annotate(
+                attempts=Count("id"),
+                is_solved=Max(Case(
+                    When(status="accepted", then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )),
+                accepted_time=Max(Case(
+                    When(status="accepted", then=F("created_at")),
+                    default=None,
+                )),
             )
         )
-        
-        # Добавляем ранги
-        for idx, entry in enumerate(leaderboard_data, start=1):
-            entry['rank'] = idx
-        
+
+        user_stats = (
+            task_stats
+            .values("user_id")
+            .annotate(
+                solved_count=Coalesce(Sum("is_solved"), Value(0)),
+                submission_count=Coalesce(
+                    Sum(Case(
+                        When(is_solved=1, then=F("attempts")),
+                        default=Value(0),
+                        output_field=IntegerField(),
+                    )),
+                    Value(0),
+                ),
+                last_accepted_at=Max("accepted_time"),
+            )
+        )
+
+        user_ids = [row["user_id"] for row in user_stats]
+        users_map = User.objects.in_bulk(user_ids)
+
+        try:
+            ordered_rows = list(user_stats.order_by(
+                F("solved_count").desc(),
+                F("submission_count").asc(),
+                OrderBy(F("last_accepted_at"), ascending=True, nulls_last=True),
+            ))
+        except Exception:
+            ordered_rows = list(user_stats)
+            far_future = now + timedelta(days=365)
+            ordered_rows.sort(key=lambda x: (
+                -int(x["solved_count"] or 0),
+                int(x["submission_count"] or 0),
+                x["last_accepted_at"] if x["last_accepted_at"] else far_future
+            ))
+
+        leaderboard = []
+        for idx, row in enumerate(ordered_rows, start=1):
+            u = users_map.get(row["user_id"])
+            if not u:
+                continue
+            leaderboard.append({
+                "rank": idx,
+                "user_id": row["user_id"],
+                "username": u.username,
+                "solved_count": int(row["solved_count"] or 0),
+                "submission_count": int(row["submission_count"] or 0),
+                "last_accepted_at": row["last_accepted_at"],
+            })
+
         return Response({
-            'course': {
-                'id': course.id,
-                'title': course.title,
-                'is_olimpiad': course.is_olimpiad,
-                'start_time': course.start_time,
-                'end_time': course.end_time,
-                'is_finished': course.is_olimpiad_finished
+            "course": {
+                "id": course.id,
+                "title": course.title,
+                "is_olimpiad": course.is_olimpiad,
+                "start_time": course.start_time,
+                "end_time": course.end_time,
+                "is_finished": course.is_olimpiad_finished,
             },
-            'leaderboard': leaderboard_data
-        })
+            "leaderboard": leaderboard
+        }, status=status.HTTP_200_OK)

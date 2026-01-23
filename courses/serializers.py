@@ -148,6 +148,7 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
     progress_percent = serializers.SerializerMethodField()
     is_olimpiad_active = serializers.ReadOnlyField()
     is_olimpiad_finished = serializers.ReadOnlyField()
+    enrolled_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Course
@@ -164,7 +165,8 @@ class DetailedCourseSerializer(serializers.ModelSerializer):
             'solved_tasks_count',
             'total_tasks',
             'progress_percent',
-            'modules'
+            'modules',
+            'enrolled_count'
         ]
 
     def get_is_enrolled(self, obj):
