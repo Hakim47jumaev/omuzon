@@ -252,7 +252,8 @@ class CourseDeleteView(generics.DestroyAPIView):
 from datetime import timedelta
 from django.db.models import (
     Q, F, Value, IntegerField,
-    Count, Max, Sum, Case, When
+    Count, Max, Sum, Case, When,
+    Exists, OuterRef
 )
 from django.db.models.functions import Coalesce
 from django.db.models.expressions import OrderBy
@@ -276,80 +277,66 @@ class OlimpiadLeaderboardView(APIView):
 
         now = timezone.now()
 
-        # --- cutoff_time (для олимпиады делаем freeze-snapshot) ---
+        # --- cutoff_time (freeze snapshot для олимпиад) ---
         cutoff_time = now
-
         if course.is_olimpiad and course.end_time:
             freeze_point = course.end_time - timedelta(minutes=30)
-
             if now >= course.end_time:
-                # финальные результаты
-                cutoff_time = course.end_time
+                cutoff_time = course.end_time          # финал
             elif now >= freeze_point:
-                # последние 30 минут -> snapshot на момент freeze_point
-                cutoff_time = freeze_point
+                cutoff_time = freeze_point             # snapshot
             else:
-                # до freeze зоны -> актуально на сейчас
-                cutoff_time = now
+                cutoff_time = now                      # актуально
 
-        # --- фильтр сабмитов ---
-        sub_filter = Q(task__module__course=course)
+        # --- базовый фильтр сабмитов для текущего leaderboard ---
+        base_filter = Q(task__module__course=course)
 
-        # если олимпиада — обязательно в окне времени
         if course.is_olimpiad:
-            sub_filter &= Q(created_at__gte=course.start_time)
-            sub_filter &= Q(created_at__lte=cutoff_time)
+            base_filter &= Q(created_at__gte=course.start_time)
+            base_filter &= Q(created_at__lte=cutoff_time)
         else:
-            # обычный курс: можно считать за всё время
-            # (если хочешь ограничить с момента старта курса — добавь created_at__gte=course.start_time)
-            sub_filter &= Q(created_at__lte=now)
+            # обычный курс: за всё время до now (по желанию можно добавить >= start_time)
+            base_filter &= Q(created_at__lte=now)
 
-        task_stats = (
-            Submission.objects
-            .filter(sub_filter)
-            .values("user_id", "task_id")
-            .annotate(
-                attempts=Count("id"),
-                is_solved=Max(Case(
-                    When(status="accepted", then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
-                )),
-                accepted_time=Max(Case(
-                    When(status="accepted", then=F("created_at")),
-                    default=None,
-                )),
-            )
+        # --- Exists: "эта задача решена этим пользователем?" (внутри тех же временных рамок) ---
+        solved_exists = Exists(
+            Submission.objects.filter(base_filter, status="accepted")
+            .filter(user_id=OuterRef("user_id"), task_id=OuterRef("task_id"))
         )
 
-        user_stats = (
-            task_stats
+        # --- 1 запрос: считаем метрики по пользователю ---
+        stats_qs = (
+            Submission.objects
+            .filter(base_filter)
+            .annotate(_solved_exists=solved_exists)
             .values("user_id")
             .annotate(
-                solved_count=Coalesce(Sum("is_solved"), Value(0)),
+                solved_count=Count("task_id", filter=Q(status="accepted"), distinct=True),
+                last_accepted_at=Max("created_at", filter=Q(status="accepted")),
                 submission_count=Coalesce(
                     Sum(Case(
-                        When(is_solved=1, then=F("attempts")),
+                        When(_solved_exists=True, then=Value(1)),
                         default=Value(0),
                         output_field=IntegerField(),
                     )),
                     Value(0),
                 ),
-                last_accepted_at=Max("accepted_time"),
             )
         )
 
-        user_ids = [row["user_id"] for row in user_stats]
+        # пользователи пачкой (1 запрос)
+        user_ids = [row["user_id"] for row in stats_qs]
         users_map = User.objects.in_bulk(user_ids)
 
+        # сортировка: solved desc → submission asc → last_accepted_at asc (NULLS LAST)
         try:
-            ordered_rows = list(user_stats.order_by(
+            ordered_rows = list(stats_qs.order_by(
                 F("solved_count").desc(),
                 F("submission_count").asc(),
                 OrderBy(F("last_accepted_at"), ascending=True, nulls_last=True),
             ))
         except Exception:
-            ordered_rows = list(user_stats)
+            ordered_rows = list(stats_qs)
             far_future = now + timedelta(days=365)
             ordered_rows.sort(key=lambda x: (
                 -int(x["solved_count"] or 0),
