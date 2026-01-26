@@ -35,8 +35,8 @@ NOFILE_LIMIT = 128
 FSIZE_LIMIT = 10 * 1024 * 1024  # 10MB
 
 # RLIMIT_AS used only where safe
-PY_MEMORY_BYTES = 256 * 1024 * 1024      # 256MB
-CPP_RUN_MEMORY_BYTES = 256 * 1024 * 1024 # 256MB
+PY_MEMORY_BYTES = 256 * 1024 * 1024       # 256MB
+CPP_RUN_MEMORY_BYTES = 256 * 1024 * 1024  # 256MB
 CPP_COMPILE_MEMORY_BYTES = 768 * 1024 * 1024  # 768MB (compiling may need more)
 
 # Node memory limit (V8 old space, MB)
@@ -81,7 +81,7 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
             stderr=subprocess.PIPE,
             cwd=str(cwd),
             text=True,
-            env=env,  # <-- ВАЖНО
+            env=env,  # <-- IMPORTANT
             preexec_fn=lambda: _preexec(mem_bytes),
         )
 
@@ -143,6 +143,36 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
         }
 
 
+# ----------------------------- C# WRAPPER (NO MAIN FROM STUDENT) -----------------------------
+
+def wrap_csharp_code(student_code: str) -> str:
+    """
+    Accept student code WITHOUT Main / class / using.
+    If student already provided Main / class / namespace / using => keep as-is (to avoid double wrapping).
+    """
+    code = (student_code or "").strip()
+
+    # If looks like full program already, don't wrap
+    suspicious_tokens = ("Main(", "class ", "namespace ", "using ")
+    if any(tok in code for tok in suspicious_tokens):
+        return student_code
+
+    # indent inside Main
+    indented = "\n".join(("        " + line) if line.strip() else "" for line in student_code.splitlines())
+
+    return f"""using System;
+
+class Program
+{{
+    static void Main(string[] args)
+    {{
+{indented}
+    }}
+}}
+"""
+
+
+# ---------------------------------- RUNNERS ----------------------------------
 
 def run_python_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
     work = Path(tempfile.mkdtemp(prefix="code_run_"))
@@ -205,7 +235,10 @@ def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -
 def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> Dict:
     work = Path(tempfile.mkdtemp(prefix="code_run_"))
     try:
-        (work / "Program.cs").write_text(code, encoding="utf-8")
+        # ✅ accept student code without Main
+        final_code = wrap_csharp_code(code)
+
+        (work / "Program.cs").write_text(final_code, encoding="utf-8")
         (work / "App.csproj").write_text(
             """<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -254,7 +287,6 @@ def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> 
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
-
 
 
 def run_code_in_docker(code: str, lang: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
