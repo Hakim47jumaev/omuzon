@@ -202,10 +202,6 @@ def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -
 
 
 def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> Dict:
-    """
-    Expects full Program.cs.
-    IMPORTANT: no RLIMIT_AS for .NET (often fails to reserve).
-    """
     work = Path(tempfile.mkdtemp(prefix="code_run_"))
     try:
         (work / "Program.cs").write_text(code, encoding="utf-8")
@@ -213,7 +209,7 @@ def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> 
             """<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -222,27 +218,42 @@ def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> 
             encoding="utf-8",
         )
 
+        env = os.environ.copy()
+        env["DOTNET_CLI_HOME"] = "/tmp/dotnet_cli_home"
+        env["NUGET_PACKAGES"] = "/tmp/nuget_packages"
+        env["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1"
+        env["DOTNET_NOLOGO"] = "1"
+        env["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
+
+        # build
         build = _run(
             ["dotnet", "build", "-nologo", "-v:q", "App.csproj"],
             input_data="",
             cwd=work,
             timeout=timeout,
             mem_bytes=None,
+            env=env,
         )
         if build["status"] != "ok":
+            # dotnet often prints errors to stdout
+            if not build.get("stderr") and build.get("stdout"):
+                build["stderr"] = build["stdout"]
+                build["stdout"] = ""
             build["status"] = "compile_error"
             return build
 
-        # Pass stdin to dotnet run (works for Console.ReadLine)
+        # run
         return _run(
             ["dotnet", "run", "-nologo", "--project", "App.csproj"],
             input_data=input_data,
             cwd=work,
             timeout=timeout,
             mem_bytes=None,
+            env=env,
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
 
 
 def run_code_in_docker(code: str, lang: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
