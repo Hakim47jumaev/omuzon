@@ -70,7 +70,7 @@ def _preexec(mem_bytes: Optional[int]) -> None:
     _set_limits(mem_bytes)
 
 
-def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]) -> Dict:
+def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int], env=None) -> Dict:
     start = time.time()
     p = None
     try:
@@ -81,6 +81,7 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
             stderr=subprocess.PIPE,
             cwd=str(cwd),
             text=True,
+            env=env,  # <-- ВАЖНО
             preexec_fn=lambda: _preexec(mem_bytes),
         )
 
@@ -122,7 +123,6 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
         }
 
     except FileNotFoundError as e:
-        # e.g. 'dart' not found, 'node' not found, etc.
         elapsed = round(time.time() - start, 3)
         return {
             "status": "error",
@@ -141,6 +141,7 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
             "time": elapsed,
             "returncode": -1,
         }
+
 
 
 def run_python_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -> Dict:
