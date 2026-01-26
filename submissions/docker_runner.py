@@ -14,6 +14,7 @@
 # - We do NOT use RLIMIT_AS for Node/Dart/C# because it often crashes V8/Dart VM/.NET with "Failed to reserve virtual memory".
 # - For Node we limit memory via V8 flag --max-old-space-size.
 # - We use process groups so timeout kills child processes too.
+# - IMPORTANT FIX: RLIMIT_CPU=2 was killing dotnet build/run silently. We added cpu_seconds param per _run call.
 
 import os
 import signal
@@ -50,9 +51,9 @@ def _clip(s: str) -> str:
     return (s or "")[:MAX_OUTPUT]
 
 
-def _set_limits(mem_bytes: Optional[int]) -> None:
+def _set_limits(mem_bytes: Optional[int], cpu_seconds: int) -> None:
     # Kill CPU hogs
-    resource.setrlimit(resource.RLIMIT_CPU, (CPU_SECONDS, CPU_SECONDS))
+    resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
 
     # Virtual memory limit (OPTIONAL: do not set for Node/Dart/.NET to avoid reserve/mmap crashes)
     if mem_bytes is not None:
@@ -64,13 +65,21 @@ def _set_limits(mem_bytes: Optional[int]) -> None:
     resource.setrlimit(resource.RLIMIT_FSIZE, (FSIZE_LIMIT, FSIZE_LIMIT))
 
 
-def _preexec(mem_bytes: Optional[int]) -> None:
+def _preexec(mem_bytes: Optional[int], cpu_seconds: int) -> None:
     # New process group => kill children on timeout
     os.setsid()
-    _set_limits(mem_bytes)
+    _set_limits(mem_bytes, cpu_seconds)
 
 
-def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int], env=None) -> Dict:
+def _run(
+    cmd,
+    input_data: str,
+    cwd: Path,
+    timeout: int,
+    mem_bytes: Optional[int],
+    env=None,
+    cpu_seconds: int = CPU_SECONDS,
+) -> Dict:
     start = time.time()
     p = None
     try:
@@ -82,7 +91,7 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
             cwd=str(cwd),
             text=True,
             env=env,  # <-- IMPORTANT
-            preexec_fn=lambda: _preexec(mem_bytes),
+            preexec_fn=lambda: _preexec(mem_bytes, cpu_seconds),
         )
 
         stdout, stderr = p.communicate(input=input_data or "", timeout=timeout)
@@ -148,7 +157,7 @@ def _run(cmd, input_data: str, cwd: Path, timeout: int, mem_bytes: Optional[int]
 def wrap_csharp_code(student_code: str) -> str:
     """
     Accept student code WITHOUT Main / class / using.
-    If student already provided Main / class / namespace / using => keep as-is (to avoid double wrapping).
+    If student already provided Main / class / namespace / using => keep as-is (avoid double wrapping).
     """
     code = (student_code or "").strip()
 
@@ -178,7 +187,14 @@ def run_python_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT
     work = Path(tempfile.mkdtemp(prefix="code_run_"))
     try:
         (work / "main.py").write_text(code, encoding="utf-8")
-        return _run(["python3", "main.py"], input_data, work, timeout, mem_bytes=PY_MEMORY_BYTES)
+        return _run(
+            ["python3", "main.py"],
+            input_data=input_data,
+            cwd=work,
+            timeout=timeout,
+            mem_bytes=PY_MEMORY_BYTES,
+            cpu_seconds=CPU_SECONDS,
+        )
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -190,10 +206,11 @@ def run_js_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) ->
         # IMPORTANT: no RLIMIT_AS for Node, use V8 heap limit instead
         return _run(
             ["node", f"--max-old-space-size={NODE_MAX_OLD_SPACE_MB}", "main.js"],
-            input_data,
-            work,
-            timeout,
+            input_data=input_data,
+            cwd=work,
+            timeout=timeout,
             mem_bytes=None,
+            cpu_seconds=CPU_SECONDS,
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
@@ -204,7 +221,14 @@ def run_dart_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) 
     try:
         (work / "main.dart").write_text(code, encoding="utf-8")
         # IMPORTANT: no RLIMIT_AS for Dart (snapshot mmap / coderange reserve issues)
-        return _run(["dart", "run", "main.dart"], input_data, work, timeout, mem_bytes=None)
+        return _run(
+            ["dart", "run", "main.dart"],
+            input_data=input_data,
+            cwd=work,
+            timeout=timeout,
+            mem_bytes=None,
+            cpu_seconds=CPU_SECONDS,
+        )
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -221,13 +245,21 @@ def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -
             cwd=work,
             timeout=timeout,
             mem_bytes=CPP_COMPILE_MEMORY_BYTES,
+            cpu_seconds=CPU_SECONDS,
         )
         if compile_res["status"] != "ok":
             compile_res["status"] = "compile_error"
             return compile_res
 
         # Run (less memory)
-        return _run(["./a.out"], input_data, work, timeout, mem_bytes=CPP_RUN_MEMORY_BYTES)
+        return _run(
+            ["./a.out"],
+            input_data=input_data,
+            cwd=work,
+            timeout=timeout,
+            mem_bytes=CPP_RUN_MEMORY_BYTES,
+            cpu_seconds=CPU_SECONDS,
+        )
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -235,7 +267,7 @@ def run_cpp_in_docker(code: str, input_data: str = "", timeout: int = TIMEOUT) -
 def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> Dict:
     work = Path(tempfile.mkdtemp(prefix="code_run_"))
     try:
-        # ✅ accept student code without Main
+        # Accept student code without Main (wrap if needed)
         final_code = wrap_csharp_code(code)
 
         (work / "Program.cs").write_text(final_code, encoding="utf-8")
@@ -259,7 +291,7 @@ def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> 
         env["DOTNET_NOLOGO"] = "1"
         env["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
 
-        # build
+        # build (needs more CPU than 2s)
         build = _run(
             ["dotnet", "build", "-nologo", "-v:q", "App.csproj"],
             input_data="",
@@ -267,16 +299,19 @@ def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> 
             timeout=timeout,
             mem_bytes=None,
             env=env,
+            cpu_seconds=15,
         )
         if build["status"] != "ok":
-            # dotnet often prints errors to stdout
-            if not build.get("stderr") and build.get("stdout"):
-                build["stderr"] = build["stdout"]
-                build["stdout"] = ""
+            # dotnet often prints errors to stdout, so merge them
+            merged = (build.get("stderr") or "")
+            if build.get("stdout"):
+                merged = (merged + "\n" + build["stdout"]).strip()
+            build["stderr"] = merged.strip()
+            build["stdout"] = ""
             build["status"] = "compile_error"
             return build
 
-        # run
+        # run (also can require >2 CPU seconds)
         return _run(
             ["dotnet", "run", "-nologo", "--project", "App.csproj"],
             input_data=input_data,
@@ -284,6 +319,7 @@ def run_csharp_in_docker(code: str, input_data: str = "", timeout: int = 20) -> 
             timeout=timeout,
             mem_bytes=None,
             env=env,
+            cpu_seconds=15,
         )
     finally:
         shutil.rmtree(work, ignore_errors=True)
