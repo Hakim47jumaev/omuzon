@@ -1,0 +1,135 @@
+{% extends 'customadmin/base.html' %}
+
+{% block title %}Task: {{ task.title }} - Custom Admin{% endblock %}
+
+{% block content %}
+<style>
+    .testcase-form-container {
+        overflow: visible;
+        max-height: none;
+    }
+    body {
+        overflow-x: hidden;
+    }
+</style>
+<h1>Task: {{ task.title }}</h1>
+
+<div style="margin-bottom: 30px;">
+    <a href="{% url 'customadmin:task_update' task.pk %}" class="btn btn-success">Edit Task</a>
+    <a href="{% url 'customadmin:task_delete' task.pk %}" class="btn btn-danger">Delete Task</a>
+    <a href="{% url 'customadmin:module_detail' task.module.pk %}" class="btn btn-secondary">Back to Module</a>
+    <a href="{% url 'customadmin:task_list' %}" class="btn btn-secondary">Back to List</a>
+</div>
+
+<div style="background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); padding: 20px; border-radius: 8px; margin-bottom: 30px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+    <h2 style="margin-top: 0; color: #2d3748;">Task Information</h2>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Title:</strong> {{ task.title }}</p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Description:</strong> {{ task.description|default:"-" }}</p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Task Text:</strong> {{ task.task_text }}</p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Module:</strong> <a href="{% url 'customadmin:module_detail' task.module.pk %}" style="color: #667eea;">{{ task.module.title }}</a></p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Course:</strong> <a href="{% url 'customadmin:course_detail' task.module.course.pk %}" style="color: #667eea;">{{ task.module.course.title }}</a></p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Order:</strong> {{ task.order }}</p>
+    <p style="margin-bottom: 0; color: #4a5568;"><strong style="color: #2d3748;">Show Count:</strong> {{ task.show_count }}</p>
+</div>
+
+<h2 style="color: #2d3748; font-weight: 600; margin-top: 30px; margin-bottom: 20px;">TestCases</h2>
+{% if task.testcases.all %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Input Data</th>
+            <th>Expected Output</th>
+            <th>Is Active</th>
+            <th>Order</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for testcase in task.testcases.all %}
+        <tr>
+            <td>{{ testcase.id }}</td>
+            <td>{{ testcase.input_data|truncatewords:10|default:"-" }}</td>
+            <td>{{ testcase.expected_output|truncatewords:10 }}</td>
+            <td>{{ testcase.is_active|yesno:"Yes,No" }}</td>
+            <td>{{ testcase.order }}</td>
+            <td>
+                <a href="{% url 'customadmin:testcase_update' testcase.pk %}" class="btn btn-success">Edit</a>
+                <a href="{% url 'customadmin:testcase_delete' testcase.pk %}" class="btn btn-danger">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No testcases yet.</p>
+{% endif %}
+
+<h2 style="color: #2d3748; font-weight: 600; margin-top: 30px; margin-bottom: 20px;">Add TestCases</h2>
+<div class="testcase-form-container">
+    <form method="post">
+        {% csrf_token %}
+        {{ formset.management_form }}
+        <table style="width: 100%;">
+            <thead>
+                <tr>
+                    <th>Input Data</th>
+                    <th>Expected Output</th>
+                    <th>Is Active</th>
+                    <th>Order</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for form in formset %}
+                <tr>
+                    <td>
+                        {{ form.id }}
+                        {{ form.input_data }}
+                        {% if form.input_data.errors %}
+                            <div class="alert alert-error">{{ form.input_data.errors }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ form.expected_output }}
+                        {% if form.expected_output.errors %}
+                            <div class="alert alert-error">{{ form.expected_output.errors }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ form.is_active }}
+                        {% if form.is_active.errors %}
+                            <div class="alert alert-error">{{ form.is_active.errors }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ form.order }}
+                        {% if form.order.errors %}
+                            <div class="alert alert-error">{{ form.order.errors }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if form.DELETE %}
+                            {{ form.DELETE }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if formset.non_form_errors %}
+            <div class="alert alert-error">
+                {{ formset.non_form_errors }}
+            </div>
+        {% endif %}
+        <div style="margin-top: 15px;">
+                <a href="?add_testcase={{ add_testcase_count|add:1 }}" style="display: inline-flex; align-items: center; text-decoration: none; color: #667eea; font-size: 14px; margin-bottom: 15px; font-weight: 500; transition: all 0.2s ease;">
+                    <span style="display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); border-radius: 6px; color: white; text-align: center; line-height: 1; font-weight: 600; margin-right: 10px; font-size: 18px; box-shadow: 0 2px 4px rgba(72, 187, 120, 0.3);">+</span>
+                    <span style="text-decoration: underline; color: #667eea;">Add another Test case</span>
+                </a>
+        </div>
+        <button type="submit" class="btn btn-primary">Save TestCases</button>
+        <a href="{% url 'customadmin:task_detail' task.pk %}" class="btn btn-secondary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

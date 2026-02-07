@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     'accounts',
     'courses',
     'submissions',
+    'customadmin',
     'django_filters',
     "django_celery_results",
 ]
@@ -68,14 +69,10 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'omuzon',
-        'USER': 'omuzon_user',
-        'PASSWORD': 'softclub',
-        'HOST': 'localhost',
-        'PORT': '5432',
-}    }
-
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 # Password validators
 AUTH_PASSWORD_VALIDATORS = [
@@ -101,6 +98,9 @@ MEDIA_ROOT = BASE_DIR / 'media/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'accounts.User'
+
+LOGIN_URL = '/dashboard/login/'
+LOGIN_REDIRECT_URL = '/dashboard/courses/'
 
 # REST Framework + JWT
 REST_FRAMEWORK = {

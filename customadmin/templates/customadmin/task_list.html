@@ -1,0 +1,34 @@
+{% extends 'customadmin/base.html' %}
+
+{% block title %}Tasks - Custom Admin{% endblock %}
+
+{% block content %}
+<h1>Tasks</h1>
+<a href="{% url 'customadmin:task_create' %}" class="btn btn-primary">Create New Task</a>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Module</th>
+            <th>Order</th>
+            <th>Show Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for task in tasks %}
+        <tr style="cursor: pointer;" onclick="window.location.href='{% url 'customadmin:task_detail' task.pk %}'">
+            <td>{{ task.id }}</td>
+            <td><a href="{% url 'customadmin:task_detail' task.pk %}" style="text-decoration: none; color: inherit;">{{ task.title }}</a></td>
+            <td>{{ task.module.title }}</td>
+            <td>{{ task.order }}</td>
+            <td>{{ task.show_count }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="5">No tasks found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

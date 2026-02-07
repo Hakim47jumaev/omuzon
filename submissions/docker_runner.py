@@ -22,6 +22,7 @@
 # - Always merge stdout+stderr for compile errors
 
 import os
+import sys
 import signal
 import subprocess
 import tempfile
@@ -29,7 +30,13 @@ import shutil
 import time
 from pathlib import Path
 from typing import Dict, Optional
-import resource
+
+# resource module is Unix-only
+try:
+    import resource
+    HAS_RESOURCE = True
+except ImportError:
+    HAS_RESOURCE = False
 
 TIMEOUT = 2
 MAX_OUTPUT = 64 * 1024  # 64KB
@@ -68,6 +75,10 @@ def _set_limits(
     nofile_limit: int,
     fsize_limit: int,
 ) -> None:
+    if not HAS_RESOURCE:
+        # Windows doesn't support resource limits
+        return
+    
     resource.setrlimit(resource.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
 
     if mem_bytes is not None:
@@ -85,7 +96,8 @@ def _preexec(
     nofile_limit: int,
     fsize_limit: int,
 ) -> None:
-    os.setsid()
+    if sys.platform != 'win32':
+        os.setsid()
     _set_limits(mem_bytes, cpu_seconds, nproc_limit, nofile_limit, fsize_limit)
 
 
@@ -104,16 +116,20 @@ def _run(
     start = time.time()
     p = None
     try:
-        p = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=str(cwd),
-            text=True,
-            env=env,
-            preexec_fn=lambda: _preexec(mem_bytes, cpu_seconds, nproc_limit, nofile_limit, fsize_limit),
-        )
+        popen_kwargs = {
+            'cmd': cmd,
+            'stdin': subprocess.PIPE,
+            'stdout': subprocess.PIPE,
+            'stderr': subprocess.PIPE,
+            'cwd': str(cwd),
+            'text': True,
+            'env': env,
+        }
+        # preexec_fn is Unix-only
+        if sys.platform != 'win32':
+            popen_kwargs['preexec_fn'] = lambda: _preexec(mem_bytes, cpu_seconds, nproc_limit, nofile_limit, fsize_limit)
+        
+        p = subprocess.Popen(**popen_kwargs)
 
         stdout, stderr = p.communicate(input=input_data or "", timeout=timeout)
         elapsed = round(time.time() - start, 3)
@@ -136,7 +152,12 @@ def _run(
         elapsed = round(time.time() - start, 3)
         try:
             if p and p.pid:
-                os.killpg(p.pid, signal.SIGKILL)
+                if sys.platform != 'win32':
+                    # Unix: kill process group
+                    os.killpg(p.pid, signal.SIGKILL)
+                else:
+                    # Windows: kill process directly
+                    p.kill()
         except Exception:
             try:
                 if p:

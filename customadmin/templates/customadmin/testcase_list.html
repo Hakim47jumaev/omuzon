@@ -1,0 +1,41 @@
+{% extends 'customadmin/base.html' %}
+
+{% block title %}TestCases - Custom Admin{% endblock %}
+
+{% block content %}
+<h1>TestCases</h1>
+<a href="{% url 'customadmin:testcase_create' %}" class="btn btn-primary">Create New TestCase</a>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Task</th>
+            <th>Input Data</th>
+            <th>Expected Output</th>
+            <th>Is Active</th>
+            <th>Order</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for testcase in testcases %}
+        <tr>
+            <td>{{ testcase.id }}</td>
+            <td>{{ testcase.task.title }}</td>
+            <td>{{ testcase.input_data|truncatewords:10 }}</td>
+            <td>{{ testcase.expected_output|truncatewords:10 }}</td>
+            <td>{{ testcase.is_active|yesno:"Yes,No" }}</td>
+            <td>{{ testcase.order }}</td>
+            <td>
+                <a href="{% url 'customadmin:testcase_update' testcase.pk %}" class="btn btn-success">Update</a>
+                <a href="{% url 'customadmin:testcase_delete' testcase.pk %}" class="btn btn-danger">Delete</a>
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="7">No testcases found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

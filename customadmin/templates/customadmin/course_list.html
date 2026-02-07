@@ -1,0 +1,36 @@
+{% extends 'customadmin/base.html' %}
+
+{% block title %}Courses - Custom Admin{% endblock %}
+
+{% block content %}
+<h1>Courses</h1>
+<a href="{% url 'customadmin:course_create' %}" class="btn btn-primary">Create New Course</a>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Owner</th>
+            <th>Start Time</th>
+            <th>Is Exam</th>
+            <th>Is Olimpiad</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for course in courses %}
+        <tr style="cursor: pointer;" onclick="window.location.href='{% url 'customadmin:course_detail' course.pk %}'">
+            <td>{{ course.id }}</td>
+            <td><a href="{% url 'customadmin:course_detail' course.pk %}" style="text-decoration: none; color: inherit;">{{ course.title }}</a></td>
+            <td>{{ course.owner.username }}</td>
+            <td>{{ course.start_time }}</td>
+            <td>{{ course.is_exam|yesno:"Yes,No" }}</td>
+            <td>{{ course.is_olimpiad|yesno:"Yes,No" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="6">No courses found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

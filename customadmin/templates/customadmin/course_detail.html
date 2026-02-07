@@ -1,0 +1,103 @@
+{% extends 'customadmin/base.html' %}
+
+{% block title %}Course: {{ course.title }} - Custom Admin{% endblock %}
+
+{% block content %}
+<h1>Course: {{ course.title }}</h1>
+
+<div style="margin-bottom: 30px;">
+    <a href="{% url 'customadmin:course_update' course.pk %}" class="btn btn-success">Edit Course</a>
+    <a href="{% url 'customadmin:course_delete' course.pk %}" class="btn btn-danger">Delete Course</a>
+    <a href="{% url 'customadmin:course_list' %}" class="btn btn-secondary">Back to List</a>
+</div>
+
+<div style="background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); padding: 20px; border-radius: 8px; margin-bottom: 30px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+    <h2 style="margin-top: 0; color: #2d3748;">Course Information</h2>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Title:</strong> {{ course.title }}</p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Description:</strong> {{ course.description }}</p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Owner:</strong> {{ course.owner.username }}</p>
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Start Time:</strong> {{ course.start_time }}</p>
+    {% if course.end_time %}
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">End Time:</strong> {{ course.end_time }}</p>
+    {% endif %}
+    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Is Exam:</strong> {{ course.is_exam|yesno:"Yes,No" }}</p>
+    <p style="margin-bottom: 0; color: #4a5568;"><strong style="color: #2d3748;">Is Olimpiad:</strong> {{ course.is_olimpiad|yesno:"Yes,No" }}</p>
+</div>
+
+<h2 style="color: #2d3748; font-weight: 600; margin-top: 30px; margin-bottom: 20px;">Modules</h2>
+{% if course.modules.all %}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Title</th>
+            <th>Order</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for module in course.modules.all %}
+        <tr style="cursor: pointer;" onclick="window.location.href='{% url 'customadmin:module_detail' module.pk %}'">
+            <td>{{ module.id }}</td>
+            <td><a href="{% url 'customadmin:module_detail' module.pk %}" style="text-decoration: none; color: inherit;">{{ module.title }}</a></td>
+            <td>{{ module.order }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No modules yet.</p>
+{% endif %}
+
+<h2>Add Modules</h2>
+<form method="post">
+    {% csrf_token %}
+    {{ formset.management_form }}
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Description</th>
+                <th>Order</th>
+                <th>Delete</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for form in formset %}
+            <tr>
+                <td>
+                    {{ form.id }}
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                        <div class="alert alert-error">{{ form.title.errors }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <div class="alert alert-error">{{ form.description.errors }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {{ form.order }}
+                    {% if form.order.errors %}
+                        <div class="alert alert-error">{{ form.order.errors }}</div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if form.DELETE %}
+                        {{ form.DELETE }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if formset.non_form_errors %}
+        <div class="alert alert-error">
+            {{ formset.non_form_errors }}
+        </div>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Save Modules</button>
+    <a href="{% url 'customadmin:course_detail' course.pk %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}
