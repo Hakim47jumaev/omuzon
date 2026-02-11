@@ -35,25 +35,39 @@ class CourseListView(generics.ListAPIView):
     ordering_fields = ['start_time', 'title', 'enrolled_count']
     ordering = ['start_time']
 
+from django.http import Http404
 
-# ==================== ДЕТАЛЬНЫЙ КУРС (с модулями, прогрессом) ====================
 # ==================== ДЕТАЛЬНЫЙ КУРС (с модулями, прогрессом) ====================
 class CourseDetailView(generics.RetrieveAPIView):
     queryset = Course.objects.all()
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return Course.objects.filter(start_time__lte=timezone.now()).prefetch_related('modules__tasks__testcases')
+        return (
+            Course.objects
+            .filter(start_time__lte=timezone.now())
+            .prefetch_related('modules__tasks__testcases')
+        )
+
+    def get_serializer_class(self):
+        return DetailedCourseSerializer
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
     def retrieve(self, request, *args, **kwargs):
-        from django.http import Http404
         now = timezone.now()
+
+        # --- получить instance или вернуть "не начался" / "завершён" ---
         try:
             instance = self.get_object()
         except Http404:
             try:
                 course = Course.objects.get(pk=kwargs['pk'])
-                # Проверка для олимпиадного режима
+
+                # олимпиада: ещё не началась
                 if course.is_olimpiad:
                     if course.start_time and course.start_time > now:
                         return Response(
@@ -78,7 +92,9 @@ class CourseDetailView(generics.RetrieveAPIView):
                             },
                             status=status.HTTP_200_OK
                         )
-                elif course.start_time > now:
+
+                # обычный курс: ещё не начался
+                if (not course.is_olimpiad) and course.start_time and course.start_time > now:
                     return Response(
                         {
                             "detail": "Курс ещё не начался. Доступ будет открыт после даты начала.",
@@ -89,9 +105,10 @@ class CourseDetailView(generics.RetrieveAPIView):
                     )
             except Course.DoesNotExist:
                 pass
+
             return Response({"detail": "Курс не найден."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Проверка для олимпиадного режима после получения объекта
+        # --- повторная проверка олимпиадного режима после получения instance ---
         if instance.is_olimpiad:
             if instance.start_time and instance.start_time > now:
                 return Response(
@@ -117,36 +134,34 @@ class CourseDetailView(generics.RetrieveAPIView):
                     status=status.HTTP_200_OK
                 )
 
-        # ===================== EXAM ACCESS CONTROL =====================
-        # ключи не меняем: используем только "detail" как и в твоих ответах выше
+        # ===================== EXAM: "видно описание, но задачи только после APPROVED" =====================
+        exam_access = True
         if instance.is_exam:
-            if not request.user.is_authenticated:
-                return Response(
-                    {"detail": "Нужна авторизация."},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
+            # owner всегда имеет доступ
+            if request.user.is_authenticated and request.user == instance.owner:
+                exam_access = True
+            else:
+                # неавторизован — не пускаем к задачам, но описание покажем
+                if not request.user.is_authenticated:
+                    exam_access = False
+                else:
+                    exam_access = Enrollment.objects.filter(
+                        user=request.user,
+                        course=instance,
+                        status=Enrollment.APPROVED
+                    ).exists()
 
-            if request.user != instance.owner:
-                is_allowed = Enrollment.objects.filter(
-                    user=request.user,
-                    course=instance,
-                    status=Enrollment.APPROVED
-                ).exists()
-
-                if not is_allowed:
-                    return Response(
-                        {"detail": "Экзамен: доступ откроется после подтверждения админом."},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
-
+        # ===================== SUBMISSIONS MAP (только если есть доступ к задачам) =====================
         submissions_map = {}
-        if request.user.is_authenticated:
+        if exam_access and request.user.is_authenticated:
             subs = (
-                Submission.objects.filter(user=request.user, task__module__course=instance)
+                Submission.objects
+                .filter(user=request.user, task__module__course=instance)
                 .select_related('task')
                 .order_by('created_at')
             )
-            # Для олимпиадного режима фильтруем по времени
+
+            # олимпиада: фильтр по времени
             if instance.is_olimpiad:
                 if instance.start_time:
                     subs = subs.filter(created_at__gte=instance.start_time)
@@ -158,17 +173,18 @@ class CourseDetailView(generics.RetrieveAPIView):
 
         base_context = self.get_serializer_context()
         base_context["user_submissions_by_task"] = submissions_map
+
         serializer = self.get_serializer(instance, context=base_context)
-        return Response(serializer.data)
+        data = serializer.data
 
-    def get_serializer_class(self):
-        return DetailedCourseSerializer
+        # если экзамен и нет доступа — скрываем модули/задачи, но курс остаётся доступным
+        if instance.is_exam and not exam_access:
+            data["modules"] = []
+            data["exam_access"] = False
+        else:
+            data["exam_access"] = True
 
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        return context
-
+        return Response(data, status=status.HTTP_200_OK)
 
 # ==================== МОИ КУРСЫ (лёгкие) ====================
 class MyEnrolledCoursesView(APIView):

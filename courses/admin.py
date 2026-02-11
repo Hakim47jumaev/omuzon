@@ -68,7 +68,7 @@ class EnrollmentAdmin(admin.ModelAdmin):
     )
     list_filter = ("status", "course")
     search_fields = ("user__username", "course__title")
-    autocomplete_fields = ("user", "course" )
+     
 
 @admin.register(TestCase)
 class TestCaseAdmin(admin.ModelAdmin):
