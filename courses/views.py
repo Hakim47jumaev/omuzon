@@ -37,15 +37,14 @@ class CourseListView(generics.ListAPIView):
 
 
 # ==================== ДЕТАЛЬНЫЙ КУРС (с модулями, прогрессом) ====================
+# ==================== ДЕТАЛЬНЫЙ КУРС (с модулями, прогрессом) ====================
 class CourseDetailView(generics.RetrieveAPIView):
     queryset = Course.objects.all()
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        return Course.objects.filter(start_time__lte=timezone.now()).prefetch_related('modules__tasks')
-          
+        return Course.objects.filter(start_time__lte=timezone.now()).prefetch_related('modules__tasks__testcases')
 
-    
     def retrieve(self, request, *args, **kwargs):
         from django.http import Http404
         now = timezone.now()
@@ -91,7 +90,7 @@ class CourseDetailView(generics.RetrieveAPIView):
             except Course.DoesNotExist:
                 pass
             return Response({"detail": "Курс не найден."}, status=status.HTTP_404_NOT_FOUND)
-        
+
         # Проверка для олимпиадного режима после получения объекта
         if instance.is_olimpiad:
             if instance.start_time and instance.start_time > now:
@@ -118,6 +117,28 @@ class CourseDetailView(generics.RetrieveAPIView):
                     status=status.HTTP_200_OK
                 )
 
+        # ===================== EXAM ACCESS CONTROL =====================
+        # ключи не меняем: используем только "detail" как и в твоих ответах выше
+        if instance.is_exam:
+            if not request.user.is_authenticated:
+                return Response(
+                    {"detail": "Нужна авторизация."},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            if request.user != instance.owner:
+                is_allowed = Enrollment.objects.filter(
+                    user=request.user,
+                    course=instance,
+                    status=Enrollment.APPROVED
+                ).exists()
+
+                if not is_allowed:
+                    return Response(
+                        {"detail": "Экзамен: доступ откроется после подтверждения админом."},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
         submissions_map = {}
         if request.user.is_authenticated:
             subs = (
@@ -131,7 +152,7 @@ class CourseDetailView(generics.RetrieveAPIView):
                     subs = subs.filter(created_at__gte=instance.start_time)
                 if instance.end_time:
                     subs = subs.filter(created_at__lte=instance.end_time)
-            
+
             for s in subs:
                 submissions_map.setdefault(s.task_id, []).append(s)
 
@@ -139,6 +160,7 @@ class CourseDetailView(generics.RetrieveAPIView):
         base_context["user_submissions_by_task"] = submissions_map
         serializer = self.get_serializer(instance, context=base_context)
         return Response(serializer.data)
+
     def get_serializer_class(self):
         return DetailedCourseSerializer
 
@@ -219,6 +241,32 @@ class EnrollView(APIView):
             course=course
         )
 
+        # ---- ЕСЛИ ЭКЗАМЕН ----
+        if course.is_exam:
+            if enrollment.status == Enrollment.APPROVED:
+                return Response(
+                    {'message': 'Успешно записан на курс'},
+                    status=status.HTTP_200_OK
+                )
+
+            if enrollment.status == Enrollment.REJECTED:
+                return Response(
+                    {'message': 'Ваша заявка отклонена'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # pending
+            if created:
+                return Response(
+                    {'message': 'Успешно записан на курс'},
+                    status=status.HTTP_201_CREATED
+                )
+            return Response(
+                {'message': 'Вы уже записаны на этот курс'},
+                status=status.HTTP_200_OK
+            )
+
+        # ---- ОБЫЧНЫЙ КУРС ----
         if created:
             return Response(
                 {'message': 'Успешно записан на курс'},
@@ -228,6 +276,7 @@ class EnrollView(APIView):
             {'message': 'Вы уже записаны на этот курс'},
             status=status.HTTP_200_OK
         )
+
     # ==================== АДМИНСКИЕ ВЬЮХИ (создание/редактирование) ====================
 class CourseCreateView(generics.CreateAPIView):
     queryset = Course.objects.all()

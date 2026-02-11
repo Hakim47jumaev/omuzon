@@ -58,9 +58,17 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(Enrollment)
 class EnrollmentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'course', 'enrolled_at', 'progress')
-    list_filter = ('course', 'user')
-    search_fields = ('user__username', 'course__title')
+    list_display = (
+        "id",
+        "user",
+        "course",
+        "status",
+        "enrolled_at",
+         
+    )
+    list_filter = ("status", "course")
+    search_fields = ("user__username", "course__title")
+    autocomplete_fields = ("user", "course" )
 
 @admin.register(TestCase)
 class TestCaseAdmin(admin.ModelAdmin):

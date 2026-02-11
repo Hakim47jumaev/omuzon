@@ -74,23 +74,48 @@ class Task(models.Model):
     class Meta:
         ordering = ['order']
 
-    def __str__(self):
-        return f"{self.module.title} - {self.title}"
+    
 
 
 # ----------------- Enrollment -----------------
 class Enrollment(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='enrollments')
-    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='enrollments')
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+    STATUS_CHOICES = [
+        (PENDING, "Pending"),
+        (APPROVED, "Approved"),
+        (REJECTED, "Rejected"),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='enrollments'
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='enrollments'
+    )
     enrolled_at = models.DateTimeField(auto_now_add=True)
-    progress = models.FloatField(default=0.0)  # процент выполнения
+    progress = models.FloatField(default=0.0)
+
+    # --- НОВОЕ ---
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default=PENDING
+    )
      
 
     class Meta:
         unique_together = ('user', 'course')
 
     def __str__(self):
-        return f"{self.user.username} enrolled in {self.course.title}"
+        return f"{self.user.username} - {self.course.title} ({self.status})"
+
 
 
 
