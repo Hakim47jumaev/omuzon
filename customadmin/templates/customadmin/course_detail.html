@@ -1,103 +1,246 @@
-{% extends 'customadmin/base.html' %}
-
-{% block title %}Course: {{ course.title }} - Custom Admin{% endblock %}
-
-{% block content %}
-<h1>Course: {{ course.title }}</h1>
-
-<div style="margin-bottom: 30px;">
-    <a href="{% url 'customadmin:course_update' course.pk %}" class="btn btn-success">Edit Course</a>
-    <a href="{% url 'customadmin:course_delete' course.pk %}" class="btn btn-danger">Delete Course</a>
-    <a href="{% url 'customadmin:course_list' %}" class="btn btn-secondary">Back to List</a>
-</div>
-
-<div style="background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); padding: 20px; border-radius: 8px; margin-bottom: 30px; border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-    <h2 style="margin-top: 0; color: #2d3748;">Course Information</h2>
-    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Title:</strong> {{ course.title }}</p>
-    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Description:</strong> {{ course.description }}</p>
-    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Owner:</strong> {{ course.owner.username }}</p>
-    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Start Time:</strong> {{ course.start_time }}</p>
-    {% if course.end_time %}
-    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">End Time:</strong> {{ course.end_time }}</p>
-    {% endif %}
-    <p style="margin-bottom: 10px; color: #4a5568;"><strong style="color: #2d3748;">Is Exam:</strong> {{ course.is_exam|yesno:"Yes,No" }}</p>
-    <p style="margin-bottom: 0; color: #4a5568;"><strong style="color: #2d3748;">Is Olimpiad:</strong> {{ course.is_olimpiad|yesno:"Yes,No" }}</p>
-</div>
-
-<h2 style="color: #2d3748; font-weight: 600; margin-top: 30px; margin-bottom: 20px;">Modules</h2>
-{% if course.modules.all %}
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Title</th>
-            <th>Order</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for module in course.modules.all %}
-        <tr style="cursor: pointer;" onclick="window.location.href='{% url 'customadmin:module_detail' module.pk %}'">
-            <td>{{ module.id }}</td>
-            <td><a href="{% url 'customadmin:module_detail' module.pk %}" style="text-decoration: none; color: inherit;">{{ module.title }}</a></td>
-            <td>{{ module.order }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p>No modules yet.</p>
-{% endif %}
-
-<h2>Add Modules</h2>
-<form method="post">
-    {% csrf_token %}
-    {{ formset.management_form }}
-    <table>
-        <thead>
-            <tr>
-                <th>Title</th>
-                <th>Description</th>
-                <th>Order</th>
-                <th>Delete</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for form in formset %}
-            <tr>
-                <td>
-                    {{ form.id }}
-                    {{ form.title }}
-                    {% if form.title.errors %}
-                        <div class="alert alert-error">{{ form.title.errors }}</div>
-                    {% endif %}
-                </td>
-                <td>
-                    {{ form.description }}
-                    {% if form.description.errors %}
-                        <div class="alert alert-error">{{ form.description.errors }}</div>
-                    {% endif %}
-                </td>
-                <td>
-                    {{ form.order }}
-                    {% if form.order.errors %}
-                        <div class="alert alert-error">{{ form.order.errors }}</div>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if form.DELETE %}
-                        {{ form.DELETE }}
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% if formset.non_form_errors %}
-        <div class="alert alert-error">
-            {{ formset.non_form_errors }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course: {{ course.title }} - Custom Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f7fafc;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            color: #2d3748;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-info span {
+            color: #4a5568;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: inline-block;
+        }
+        .btn-logout {
+            background: #f56565;
+            color: white;
+        }
+        .btn-logout:hover {
+            background: #e53e3e;
+        }
+        .btn-secondary {
+            background: #718096;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #4a5568;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        .course-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .course-header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .course-header h2 {
+            color: #2d3748;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+        .course-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .info-item {
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+        .info-item label {
+            display: block;
+            color: #718096;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .info-item span {
+            color: #2d3748;
+            font-size: 14px;
+        }
+        .actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .courses-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .courses-table thead {
+            background: #f7fafc;
+        }
+        .courses-table th {
+            padding: 15px;
+            text-align: left;
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 14px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .courses-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #2d3748;
+            font-size: 14px;
+        }
+        .courses-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #718096;
+        }
+        .empty-state p {
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <a href="{% url 'customadmin:course_list' %}" class="btn" style="background: #718096; color: white; padding: 8px 16px; font-size: 14px;">← Back</a>
+                <h1 style="margin: 0;">Dashboard</h1>
+            </div>
+            <div class="user-info">
+                <span>Welcome, <strong>{{ user.username }}</strong></span>
+                <a href="{% url 'customadmin:logout' %}" class="btn btn-logout">Logout</a>
+            </div>
         </div>
-    {% endif %}
-    <button type="submit" class="btn btn-primary">Save Modules</button>
-    <a href="{% url 'customadmin:course_detail' course.pk %}" class="btn btn-secondary">Cancel</a>
-</form>
-{% endblock %}
+        <div class="course-container">
+            <div class="course-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <h2>{{ course.title }}</h2>
+                <a href="{% url 'customadmin:course_update' course.pk %}" class="btn btn-primary">Edit Course</a>
+            </div>
+            <div class="course-info">
+                <div class="info-item">
+                    <label>ID</label>
+                    <span>{{ course.id }}</span>
+                </div>
+                <div class="info-item">
+                    <label>Owner</label>
+                    <span>{{ course.owner.username }}</span>
+                </div>
+                <div class="info-item">
+                    <label>Start Time</label>
+                    <span>{{ course.start_time|date:"Y-m-d H:i" }}</span>
+                </div>
+                {% if course.end_time %}
+                <div class="info-item">
+                    <label>End Time</label>
+                    <span>{{ course.end_time|date:"Y-m-d H:i" }}</span>
+                </div>
+                {% endif %}
+                <div class="info-item">
+                    <label>Is Exam</label>
+                    <span>{{ course.is_exam|yesno:"Yes,No" }}</span>
+                </div>
+                <div class="info-item">
+                    <label>Is Olimpiad</label>
+                    <span>{{ course.is_olimpiad|yesno:"Yes,No" }}</span>
+                </div>
+            </div>
+            <div class="info-item" style="margin-bottom: 20px;">
+                <label>Description</label>
+                <span style="display: block; margin-top: 8px; white-space: pre-wrap;">{{ course.description }}</span>
+            </div>
+
+            <div style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #e2e8f0;">
+                <h3 style="color: #2d3748; font-size: 20px; font-weight: 600; margin-bottom: 20px;">Modules</h3>
+                {% if course.modules.all %}
+                <table class="courses-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Title</th>
+                            <th>Description</th>
+                            <th>Order</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for module in course.modules.all %}
+                        <tr onclick="window.location.href='{% url 'customadmin:module_detail' module.pk %}'" style="cursor: pointer;">
+                            <td>{{ module.id }}</td>
+                            <td><strong>{{ module.title }}</strong></td>
+                            <td>{{ module.description|truncatewords:15|default:"-" }}</td>
+                            <td>{{ module.order }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="empty-state">
+                    <p>No modules available for this course.</p>
+                </div>
+                {% endif %}
+                <div style="margin-top: 20px;">
+                    <a href="{% url 'customadmin:module_create' course.pk %}" class="btn btn-primary">Add New Module</a>
+                </div>
+            </div>
+
+            <div class="actions">
+                <a href="{% url 'customadmin:course_list' %}" class="btn btn-secondary">Back to Courses</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

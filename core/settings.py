@@ -78,6 +78,7 @@ DATABASES = {
 }    }
 
 
+
 # Password validators
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
@@ -105,6 +106,7 @@ AUTH_USER_MODEL = 'accounts.User'
 
 LOGIN_URL = '/dashboard/login/'
 LOGIN_REDIRECT_URL = '/dashboard/courses/'
+
 
 # REST Framework + JWT
 REST_FRAMEWORK = {

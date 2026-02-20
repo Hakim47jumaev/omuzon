@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - Dashboard</title>
+    <title>Dashboard Login - Custom Admin</title>
     <style>
         * {
             margin: 0;
@@ -12,49 +12,53 @@
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            margin: 0;
-            padding: 0;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            justify-content: center;
-            align-items: center;
             min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
         .login-container {
-            background-color: #ffffff;
-            padding: 45px;
+            background: white;
             border-radius: 12px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
             width: 100%;
-            max-width: 420px;
+            max-width: 400px;
         }
-        h1 {
-            margin-top: 0;
-            color: #1a202c;
+        .login-header {
             text-align: center;
-            margin-bottom: 35px;
+            margin-bottom: 30px;
+        }
+        .login-header h1 {
+            color: #2d3748;
             font-size: 28px;
             font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .login-header p {
+            color: #718096;
+            font-size: 14px;
         }
         .form-group {
-            margin-bottom: 22px;
+            margin-bottom: 20px;
         }
-        label {
+        .form-group label {
             display: block;
             margin-bottom: 8px;
-            font-weight: 600;
             color: #2d3748;
+            font-weight: 500;
             font-size: 14px;
         }
         .form-control {
             width: 100%;
             padding: 12px 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
             font-size: 14px;
-            box-sizing: border-box;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-            background-color: #ffffff;
+            transition: all 0.2s ease;
+            font-family: inherit;
         }
         .form-control:focus {
             outline: none;
@@ -67,30 +71,25 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-size: 16px;
             font-weight: 500;
             cursor: pointer;
-            margin-top: 10px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.25);
+            transition: all 0.2s ease;
         }
         .btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(102, 126, 234, 0.35);
-        }
-        .messages {
-            margin-bottom: 22px;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
         }
         .alert {
-            padding: 14px 18px;
-            border-radius: 6px;
-            margin-bottom: 12px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
             font-size: 14px;
         }
         .alert-error {
             background-color: #fed7d7;
-            color: #742a2a;
+            color: #c53030;
             border: 1px solid #fc8181;
         }
         .alert-success {
@@ -100,29 +99,35 @@
         }
         .errorlist {
             list-style: none;
-            padding: 0;
-            margin: 8px 0 0 0;
-            color: #f56565;
+            margin-top: 8px;
+            color: #c53030;
             font-size: 13px;
+        }
+        .errorlist li {
+            margin-bottom: 4px;
         }
     </style>
 </head>
 <body>
     <div class="login-container">
-        <h1>Dashboard Login</h1>
+        <div class="login-header">
+            <h1>Dashboard Login</h1>
+            <p>Staff access only</p>
+        </div>
+
         {% if messages %}
-            <div class="messages">
-                {% for message in messages %}
-                    <div class="alert alert-{{ message.tags }}">
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            </div>
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
         {% endif %}
+
         <form method="post">
             {% csrf_token %}
+            
             <div class="form-group">
-                <label for="{{ form.username.id_for_label }}">{{ form.username.label }}</label>
+                <label for="{{ form.username.id_for_label }}">Username or Email</label>
                 {{ form.username }}
                 {% if form.username.errors %}
                     <ul class="errorlist">
@@ -132,8 +137,9 @@
                     </ul>
                 {% endif %}
             </div>
+
             <div class="form-group">
-                <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+                <label for="{{ form.password.id_for_label }}">Password</label>
                 {{ form.password }}
                 {% if form.password.errors %}
                     <ul class="errorlist">
@@ -143,6 +149,7 @@
                     </ul>
                 {% endif %}
             </div>
+
             {% if form.non_field_errors %}
                 <div class="alert alert-error">
                     {% for error in form.non_field_errors %}
@@ -150,6 +157,7 @@
                     {% endfor %}
                 </div>
             {% endif %}
+
             <button type="submit" class="btn">Login</button>
         </form>
     </div>

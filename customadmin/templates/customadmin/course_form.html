@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Course: {{ course.title }} - Custom Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f7fafc;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            color: #2d3748;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-info span {
+            color: #4a5568;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-logout {
+            background: #f56565;
+            color: white;
+        }
+        .btn-logout:hover {
+            background: #e53e3e;
+        }
+        .btn-secondary {
+            background: #718096;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #4a5568;
+        }
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #5568d3;
+        }
+        .form-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .form-header {
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .form-header h2 {
+            color: #2d3748;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #2d3748;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .form-check {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .form-check-input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .form-check-label {
+            margin: 0;
+            cursor: pointer;
+        }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .alert-error {
+            background-color: #fed7d7;
+            color: #c53030;
+            border: 1px solid #fc8181;
+        }
+        .errorlist {
+            list-style: none;
+            margin-top: 8px;
+            color: #c53030;
+            font-size: 13px;
+        }
+        .errorlist li {
+            margin-bottom: 4px;
+        }
+        .actions {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                {% if course %}
+                <a href="{% url 'customadmin:course_detail' course.pk %}" class="btn" style="background: #718096; color: white; padding: 8px 16px; font-size: 14px;">← Back</a>
+                {% else %}
+                <a href="{% url 'customadmin:course_list' %}" class="btn" style="background: #718096; color: white; padding: 8px 16px; font-size: 14px;">← Back</a>
+                {% endif %}
+                <h1 style="margin: 0;">Dashboard</h1>
+            </div>
+            <div class="user-info">
+                <span>Welcome, <strong>{{ user.username }}</strong></span>
+                <a href="{% url 'customadmin:logout' %}" class="btn btn-logout">Logout</a>
+            </div>
+        </div>
+        <div class="form-container">
+            <div class="form-header">
+                <h2>{% if course %}Edit Course: {{ course.title }}{% else %}Add New Course{% endif %}</h2>
+            </div>
+
+            <form method="post">
+                {% csrf_token %}
+                
+                <div class="form-group">
+                    <label for="{{ form.title.id_for_label }}">Title</label>
+                    {{ form.title }}
+                    {% if form.title.errors %}
+                        <ul class="errorlist">
+                            {% for error in form.title.errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+
+                <div class="form-group">
+                    <label for="{{ form.description.id_for_label }}">Description</label>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <ul class="errorlist">
+                            {% for error in form.description.errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+
+                {% if course %}
+                <div class="form-group">
+                    <label for="{{ form.owner.id_for_label }}">Owner</label>
+                    {{ form.owner }}
+                    {% if form.owner.errors %}
+                        <ul class="errorlist">
+                            {% for error in form.owner.errors %}
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+                </div>
+                {% else %}
+                <input type="hidden" name="owner" value="{{ user.id }}">
+                {% endif %}
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div class="form-group">
+                        <label for="{{ form.start_time.id_for_label }}">Start Time</label>
+                        {{ form.start_time }}
+                        {% if form.start_time.errors %}
+                            <ul class="errorlist">
+                                {% for error in form.start_time.errors %}
+                                    <li>{{ error }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </div>
+
+                    <div class="form-group">
+                        <label for="{{ form.end_time.id_for_label }}">End Time (optional)</label>
+                        {{ form.end_time }}
+                        {% if form.end_time.errors %}
+                            <ul class="errorlist">
+                                {% for error in form.end_time.errors %}
+                                    <li>{{ error }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 30px; margin-top: 20px;">
+                    <div class="form-check">
+                        {{ form.is_exam }}
+                        <label class="form-check-label" for="{{ form.is_exam.id_for_label }}">Is Exam</label>
+                        {% if form.is_exam.errors %}
+                            <ul class="errorlist">
+                                {% for error in form.is_exam.errors %}
+                                    <li>{{ error }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </div>
+
+                    <div class="form-check">
+                        {{ form.is_olimpiad }}
+                        <label class="form-check-label" for="{{ form.is_olimpiad.id_for_label }}">Is Olimpiad</label>
+                        {% if form.is_olimpiad.errors %}
+                            <ul class="errorlist">
+                                {% for error in form.is_olimpiad.errors %}
+                                    <li>{{ error }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {% if form.non_field_errors %}
+                    <div class="alert alert-error">
+                        {% for error in form.non_field_errors %}
+                            {{ error }}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">{% if course %}Save Changes{% else %}Create Course{% endif %}</button>
+                    {% if course %}
+                    <a href="{% url 'customadmin:course_detail' course.pk %}" class="btn btn-secondary">Cancel</a>
+                    {% else %}
+                    <a href="{% url 'customadmin:course_list' %}" class="btn btn-secondary">Cancel</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

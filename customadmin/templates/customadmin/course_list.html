@@ -1,36 +1,169 @@
-{% extends 'customadmin/base.html' %}
-
-{% block title %}Courses - Custom Admin{% endblock %}
-
-{% block content %}
-<h1>Courses</h1>
-<a href="{% url 'customadmin:course_create' %}" class="btn btn-primary">Create New Course</a>
-<table>
-    <thead>
-        <tr>
-            <th>ID</th>
-            <th>Title</th>
-            <th>Owner</th>
-            <th>Start Time</th>
-            <th>Is Exam</th>
-            <th>Is Olimpiad</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for course in courses %}
-        <tr style="cursor: pointer;" onclick="window.location.href='{% url 'customadmin:course_detail' course.pk %}'">
-            <td>{{ course.id }}</td>
-            <td><a href="{% url 'customadmin:course_detail' course.pk %}" style="text-decoration: none; color: inherit;">{{ course.title }}</a></td>
-            <td>{{ course.owner.username }}</td>
-            <td>{{ course.start_time }}</td>
-            <td>{{ course.is_exam|yesno:"Yes,No" }}</td>
-            <td>{{ course.is_olimpiad|yesno:"Yes,No" }}</td>
-        </tr>
-        {% empty %}
-        <tr>
-            <td colspan="6">No courses found.</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% endblock %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Courses - Custom Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f7fafc;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            color: #2d3748;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-info span {
+            color: #4a5568;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: inline-block;
+        }
+        .btn-logout {
+            background: #f56565;
+            color: white;
+        }
+        .btn-logout:hover {
+            background: #e53e3e;
+        }
+        .courses-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .courses-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+        .courses-header h2 {
+            color: #2d3748;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .courses-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .courses-table thead {
+            background: #f7fafc;
+        }
+        .courses-table th {
+            padding: 15px;
+            text-align: left;
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 14px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .courses-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #2d3748;
+            font-size: 14px;
+        }
+        .courses-table tbody tr {
+            transition: background-color 0.2s ease;
+            cursor: pointer;
+        }
+        .courses-table tbody tr:hover {
+            background-color: #f7fafc;
+        }
+        .courses-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #718096;
+        }
+        .empty-state p {
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <a href="javascript:history.back()" class="btn" style="background: #718096; color: white; padding: 8px 16px; font-size: 14px;">← Back</a>
+                <h1 style="margin: 0;">Dashboard</h1>
+            </div>
+            <div class="user-info">
+                <span>Welcome, <strong>{{ user.username }}</strong></span>
+                <a href="{% url 'customadmin:logout' %}" class="btn btn-logout">Logout</a>
+            </div>
+        </div>
+        <div class="courses-container">
+            <div class="courses-header">
+                <h2>Courses</h2>
+                <a href="{% url 'customadmin:course_create' %}" class="btn" style="background: #48bb78; color: white;">+ Add Course</a>
+            </div>
+            {% if courses %}
+            <table class="courses-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Title</th>
+                        <th>Description</th>
+                        <th>Start Time</th>
+                        <th>Owner</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for course in courses %}
+                    <tr onclick="window.location.href='{% url 'customadmin:course_detail' course.pk %}'" style="cursor: pointer;">
+                        <td>{{ course.id }}</td>
+                        <td><strong>{{ course.title }}</strong></td>
+                        <td>{{ course.description|truncatewords:15 }}</td>
+                        <td>{{ course.start_time|date:"Y-m-d H:i" }}</td>
+                        <td>{{ course.owner.username }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="empty-state">
+                <p>No courses available.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

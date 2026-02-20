@@ -117,7 +117,7 @@ def _run(
     p = None
     try:
         popen_kwargs = {
-            'cmd': cmd,
+            'args': cmd,
             'stdin': subprocess.PIPE,
             'stdout': subprocess.PIPE,
             'stderr': subprocess.PIPE,
