@@ -169,7 +169,10 @@
         <div class="course-container">
             <div class="course-header" style="display: flex; justify-content: space-between; align-items: center;">
                 <h2>{{ course.title }}</h2>
-                <a href="{% url 'customadmin:course_update' course.pk %}" class="btn btn-primary">Edit Course</a>
+                <div style="display: flex; gap: 10px;">
+                    <a href="{% url 'customadmin:course_enrollments' course.pk %}" class="btn" style="background: #ed8936; color: white;">Enrolls</a>
+                    <a href="{% url 'customadmin:course_update' course.pk %}" class="btn btn-primary">Edit Course</a>
+                </div>
             </div>
             <div class="course-info">
                 <div class="info-item">

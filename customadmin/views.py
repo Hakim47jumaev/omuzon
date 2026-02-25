@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.db import transaction
-from courses.models import Course, Module, Task, TestCase
+from courses.models import Course, Module, Task, TestCase, Enrollment
 from .forms import DashboardLoginForm, CourseForm, ModuleForm, TaskForm, TestCaseFormSet
 
 
@@ -47,6 +47,32 @@ class CourseDetailView(StaffRequiredMixin, DetailView):
 
     def get_queryset(self):
         return Course.objects.prefetch_related('modules')
+
+
+class CourseEnrollmentsView(StaffRequiredMixin, View):
+    def get_course(self, pk):
+        return get_object_or_404(Course, pk=pk)
+
+    def get(self, request, pk):
+        course = self.get_course(pk)
+        enrollments = course.enrollments.all().select_related('user').order_by('-enrolled_at')
+        return render(request, 'customadmin/course_enrollments.html', {
+            'course': course,
+            'enrollments': enrollments,
+        })
+
+    def post(self, request, pk):
+        course = self.get_course(pk)
+        selected_ids = request.POST.getlist('selected_enrollments')
+        action = request.POST.get('bulk_action')
+
+        if selected_ids and action in ('approved', 'rejected', 'pending'):
+            updated = Enrollment.objects.filter(id__in=selected_ids, course=course).update(status=action)
+            messages.success(request, f'{updated} enrollment(s) updated to "{action}".')
+        elif not selected_ids:
+            messages.error(request, 'No enrollments selected.')
+
+        return redirect('customadmin:course_enrollments', pk=pk)
 
 
 class CourseUpdateView(StaffRequiredMixin, UpdateView):

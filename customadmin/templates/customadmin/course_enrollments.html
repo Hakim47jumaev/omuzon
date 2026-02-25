@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enrollments: {{ course.title }} - Custom Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f7fafc;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            background: white;
+            padding: 20px 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            color: #2d3748;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .user-info span {
+            color: #4a5568;
+            font-size: 14px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-logout {
+            background: #f56565;
+            color: white;
+        }
+        .btn-logout:hover {
+            background: #e53e3e;
+        }
+        .enrollments-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .enrollments-header {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .enrollments-header h2 {
+            color: #2d3748;
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .enrollments-header p {
+            color: #718096;
+            font-size: 14px;
+        }
+        .bulk-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+        .bulk-actions label {
+            color: #4a5568;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .btn-approve {
+            background: #48bb78;
+            color: white;
+        }
+        .btn-approve:hover {
+            background: #38a169;
+        }
+        .btn-reject {
+            background: #f56565;
+            color: white;
+        }
+        .btn-reject:hover {
+            background: #e53e3e;
+        }
+        .btn-pending {
+            background: #ed8936;
+            color: white;
+        }
+        .btn-pending:hover {
+            background: #dd6b20;
+        }
+        .selected-count {
+            color: #667eea;
+            font-weight: 600;
+            font-size: 14px;
+            margin-left: auto;
+        }
+        .enrollments-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .enrollments-table thead {
+            background: #f7fafc;
+        }
+        .enrollments-table th {
+            padding: 15px;
+            text-align: left;
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 14px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .enrollments-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #2d3748;
+            font-size: 14px;
+        }
+        .enrollments-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .enrollments-table tbody tr:hover {
+            background-color: #f7fafc;
+        }
+        .enrollments-table tbody tr.selected {
+            background-color: #ebf4ff;
+        }
+        .enrollments-table input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-pending {
+            background: #feebc8;
+            color: #c05621;
+        }
+        .status-approved {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        .status-rejected {
+            background: #fed7d7;
+            color: #c53030;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #718096;
+        }
+        .empty-state p {
+            font-size: 16px;
+        }
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .alert-success {
+            background-color: #c6f6d5;
+            color: #22543d;
+            border: 1px solid #9ae6b4;
+        }
+        .alert-error {
+            background-color: #fed7d7;
+            color: #c53030;
+            border: 1px solid #fc8181;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 15px;">
+                <a href="{% url 'customadmin:course_detail' course.pk %}" class="btn" style="background: #718096; color: white; padding: 8px 16px; font-size: 14px;">← Back</a>
+                <h1 style="margin: 0;">Dashboard</h1>
+            </div>
+            <div class="user-info">
+                <span>Welcome, <strong>{{ user.username }}</strong></span>
+                <a href="{% url 'customadmin:logout' %}" class="btn btn-logout">Logout</a>
+            </div>
+        </div>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+
+        <div class="enrollments-container">
+            <div class="enrollments-header">
+                <h2>Enrollments for: {{ course.title }}</h2>
+                <p>Total enrollments: {{ enrollments|length }}</p>
+            </div>
+            {% if enrollments %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="bulk-actions">
+                    <label>Bulk actions:</label>
+                    <button type="submit" name="bulk_action" value="approved" class="btn btn-approve">Approve</button>
+                    <button type="submit" name="bulk_action" value="rejected" class="btn btn-reject">Reject</button>
+                    <button type="submit" name="bulk_action" value="pending" class="btn btn-pending">Pending</button>
+                    <span class="selected-count" id="selected-count">0 selected</span>
+                </div>
+                <table class="enrollments-table">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="select-all"></th>
+                            <th>ID</th>
+                            <th>User</th>
+                            <th>Email</th>
+                            <th>Status</th>
+                            <th>Progress</th>
+                            <th>Enrolled At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for enrollment in enrollments %}
+                        <tr>
+                            <td><input type="checkbox" name="selected_enrollments" value="{{ enrollment.id }}" class="enroll-checkbox"></td>
+                            <td>{{ enrollment.id }}</td>
+                            <td><strong>{{ enrollment.user.username }}</strong></td>
+                            <td>{{ enrollment.user.email }}</td>
+                            <td>
+                                <span class="status-badge status-{{ enrollment.status }}">
+                                    {{ enrollment.get_status_display }}
+                                </span>
+                            </td>
+                            <td>{{ enrollment.progress|floatformat:1 }}%</td>
+                            <td>{{ enrollment.enrolled_at|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </form>
+            {% else %}
+            <div class="empty-state">
+                <p>No enrollments for this course.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const selectAll = document.getElementById('select-all');
+            const checkboxes = document.querySelectorAll('.enroll-checkbox');
+            const countDisplay = document.getElementById('selected-count');
+
+            function updateCount() {
+                const checked = document.querySelectorAll('.enroll-checkbox:checked').length;
+                countDisplay.textContent = checked + ' selected';
+
+                checkboxes.forEach(function(cb) {
+                    cb.closest('tr').classList.toggle('selected', cb.checked);
+                });
+            }
+
+            if (selectAll) {
+                selectAll.addEventListener('change', function() {
+                    checkboxes.forEach(function(cb) {
+                        cb.checked = selectAll.checked;
+                    });
+                    updateCount();
+                });
+            }
+
+            checkboxes.forEach(function(cb) {
+                cb.addEventListener('change', function() {
+                    if (!cb.checked) {
+                        selectAll.checked = false;
+                    } else if (document.querySelectorAll('.enroll-checkbox:checked').length === checkboxes.length) {
+                        selectAll.checked = true;
+                    }
+                    updateCount();
+                });
+            });
+        });
+    </script>
+</body>
+</html>
