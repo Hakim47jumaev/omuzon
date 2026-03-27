@@ -20,7 +20,7 @@ class SubmissionAdmin(admin.ModelAdmin):
         "errors_count",
     )
     list_display_links = ("id",)
-    list_filter = ("status", "lang", "created_at", "task",'user')
+    list_filter = ("task__module__course","status", "lang", "created_at", "task",'user')
     date_hierarchy = "created_at"
     ordering = ("-created_at",)
 

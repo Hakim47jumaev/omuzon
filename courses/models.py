@@ -9,6 +9,7 @@ class Course(models.Model):
     description = models.TextField()
     start_time = models.DateTimeField()
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    show = models.BooleanField(default=True)
     is_exam=models.BooleanField(default=False)
     is_olimpiad = models.BooleanField(default=False)
     end_time = models.DateTimeField(null=True, blank=True)

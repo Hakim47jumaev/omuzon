@@ -8,7 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.db import transaction
 from courses.models import Course, Module, Task, TestCase, Enrollment
-from .forms import DashboardLoginForm, CourseForm, ModuleForm, TaskForm, TestCaseFormSet
+from .forms import DashboardLoginForm, CourseForm, ModuleForm, TaskForm, TestCaseForm, TestCaseFormSet
 
 
 class StaffRequiredMixin:
@@ -191,6 +191,28 @@ class TaskDeleteView(StaffRequiredMixin, DeleteView):
         module_pk = self.object.module.pk
         messages.success(self.request, 'Task deleted successfully.')
         return reverse_lazy('customadmin:module_detail', kwargs={'pk': module_pk})
+
+
+class TestCaseUpdateView(StaffRequiredMixin, UpdateView):
+    model = TestCase
+    form_class = TestCaseForm
+    template_name = 'customadmin/testcase_form.html'
+    context_object_name = 'testcase'
+
+    def get_success_url(self):
+        task_pk = self.object.task.pk
+        messages.success(self.request, 'TestCase updated successfully.')
+        return reverse_lazy('customadmin:task_detail', kwargs={'pk': task_pk})
+
+
+class TestCaseDeleteView(StaffRequiredMixin, DeleteView):
+    model = TestCase
+    template_name = 'customadmin/testcase_confirm_delete.html'
+    
+    def get_success_url(self):
+        task_pk = self.object.task.pk
+        messages.success(self.request, 'TestCase deleted successfully.')
+        return reverse_lazy('customadmin:task_detail', kwargs={'pk': task_pk})
 
 
 class TaskCreateView(StaffRequiredMixin, CreateView):

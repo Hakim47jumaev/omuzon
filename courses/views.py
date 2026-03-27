@@ -27,7 +27,7 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
 
 # ==================== СПИСОК КУРСОВ (лёгкий, без задач) ====================
 class CourseListView(generics.ListAPIView):
-    queryset = Course.objects.all()
+    queryset = Course.objects.filter(show=True)
     serializer_class = LightCourseSerializer
     permission_classes = [permissions.AllowAny]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]

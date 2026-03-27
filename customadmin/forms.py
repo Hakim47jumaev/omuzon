@@ -64,12 +64,13 @@ class DateTimeLocalInput(forms.DateTimeInput):
 class CourseForm(forms.ModelForm):
     class Meta:
         model = Course
-        fields = ['title', 'description', 'start_time', 'end_time', 'is_exam', 'is_olimpiad', 'owner']
+        fields = ['title', 'description', 'start_time', 'end_time', 'show', 'is_exam', 'is_olimpiad', 'owner']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 5}),
             'start_time': DateTimeLocalInput(attrs={'class': 'form-control'}),
             'end_time': DateTimeLocalInput(attrs={'class': 'form-control'}),
+            'show': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'is_exam': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'is_olimpiad': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'owner': forms.Select(attrs={'class': 'form-control'}),

@@ -142,6 +142,7 @@
                         <th>ID</th>
                         <th>Title</th>
                         <th>Description</th>
+                        <th>Show</th>
                         <th>Start Time</th>
                         <th>Owner</th>
                     </tr>
@@ -152,6 +153,7 @@
                         <td>{{ course.id }}</td>
                         <td><strong>{{ course.title }}</strong></td>
                         <td>{{ course.description|truncatewords:15 }}</td>
+                        <td>{% if course.show %}Yes{% else %}No{% endif %}</td>
                         <td>{{ course.start_time|date:"Y-m-d H:i" }}</td>
                         <td>{{ course.owner.username }}</td>
                     </tr>

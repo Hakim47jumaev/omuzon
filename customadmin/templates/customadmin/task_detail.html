@@ -487,8 +487,8 @@
                         <td>{{ testcase.is_active|yesno:"Yes,No" }}</td>
                         <td>{{ testcase.order }}</td>
                         <td>
-                            <a href="#" class="btn btn-success" style="padding: 5px 15px; font-size: 12px;">Edit</a>
-                            <a href="#" class="btn btn-danger" style="padding: 5px 15px; font-size: 12px;" onclick="return confirm('Are you sure?');">Delete</a>
+                            <a href="{% url 'customadmin:testcase_update' testcase.pk %}" class="btn btn-success" style="padding: 5px 15px; font-size: 12px;">Edit</a>
+                            <a href="{% url 'customadmin:testcase_delete' testcase.pk %}" class="btn btn-danger" style="padding: 5px 15px; font-size: 12px;" onclick="return confirm('Are you sure?');">Delete</a>
                         </td>
                     </tr>
                     {% endfor %}
