@@ -197,6 +197,34 @@
         .empty-state p {
             font-size: 16px;
         }
+        .task-sort-item {
+            display: flex;
+            align-items: stretch;
+            gap: 6px;
+        }
+        .task-drag-handle {
+            cursor: grab;
+            user-select: none;
+            color: #a0aec0;
+            font-size: 20px;
+            line-height: 1;
+            padding: 8px 4px;
+            display: flex;
+            align-items: center;
+            border-radius: 8px;
+            background: #edf2f7;
+            flex-shrink: 0;
+        }
+        .task-drag-handle:active {
+            cursor: grabbing;
+        }
+        .task-sort-item .task-card {
+            flex: 1;
+            min-width: 0;
+        }
+        .sortable-ghost {
+            opacity: 0.45;
+        }
     </style>
 </head>
 <body>
@@ -236,13 +264,18 @@
             </div>
 
             <div style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #e2e8f0;">
-                <h3 style="color: #2d3748; font-size: 20px; font-weight: 600; margin-bottom: 20px;">Tasks</h3>
-                <div class="task-cards-container">
-                    {% for task in module.tasks.all %}
-                    <a href="{% url 'customadmin:task_detail' task.pk %}" class="task-card">
-                        <div class="task-card-number">{{ forloop.counter }}</div>
-                        <div class="task-card-icon">&gt;_</div>
-                    </a>
+                <h3 style="color: #2d3748; font-size: 20px; font-weight: 600; margin-bottom: 8px;">Tasks</h3>
+                <p style="color: #718096; font-size: 14px; margin-bottom: 16px;">Тяните за полоску слева, чтобы изменить порядок.</p>
+                {% csrf_token %}
+                <div id="task-sortable" class="task-cards-container">
+                    {% for task in module_tasks %}
+                    <div class="task-sort-item" data-task-id="{{ task.pk }}">
+                        <span class="task-drag-handle" title="Перетащить">⠿</span>
+                        <a href="{% url 'customadmin:task_detail' task.pk %}" class="task-card">
+                            <div class="task-card-number">{{ forloop.counter }}</div>
+                            <div class="task-card-icon">&gt;_</div>
+                        </a>
+                    </div>
                     {% endfor %}
                     <a href="{% url 'customadmin:task_create' module.pk %}" class="add-task-card" style="text-decoration: none;">+</a>
                 </div>
@@ -253,5 +286,54 @@
             </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+    <script>
+        (function () {
+            var el = document.getElementById('task-sortable');
+            if (!el || typeof Sortable === 'undefined') return;
+            var csrftoken = document.querySelector('[name=csrfmiddlewaretoken]');
+            csrftoken = csrftoken ? csrftoken.value : '';
+            var reorderUrl = '{% url "customadmin:module_tasks_reorder" module.pk %}';
+
+            function renumber() {
+                el.querySelectorAll('.task-sort-item .task-card-number').forEach(function (node, i) {
+                    node.textContent = String(i + 1);
+                });
+            }
+
+            new Sortable(el, {
+                animation: 150,
+                draggable: '.task-sort-item',
+                handle: '.task-drag-handle',
+                ghostClass: 'sortable-ghost',
+                onEnd: function () {
+                    var items = el.querySelectorAll('.task-sort-item[data-task-id]');
+                    var order = [];
+                    items.forEach(function (row) {
+                        order.push(parseInt(row.getAttribute('data-task-id'), 10));
+                    });
+                    if (!order.length) return;
+                    fetch(reorderUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrftoken
+                        },
+                        body: JSON.stringify({ order: order })
+                    }).then(function (r) {
+                        if (r.ok) renumber();
+                        else r.json().catch(function () { return {}; }).then(function (d) {
+                            console.error('Reorder failed', d);
+                            alert('Не удалось сохранить порядок');
+                            window.location.reload();
+                        });
+                    }).catch(function () {
+                        alert('Ошибка сети при сохранении порядка');
+                        window.location.reload();
+                    });
+                }
+            });
+        })();
+    </script>
 </body>
 </html>

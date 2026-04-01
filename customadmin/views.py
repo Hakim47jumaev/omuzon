@@ -1,3 +1,5 @@
+import json
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login
 from django.contrib.auth.views import LogoutView
@@ -7,8 +9,20 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.db import transaction
+from django.db.models import Max
+from django.http import JsonResponse, HttpResponseBadRequest
+from django.views.decorators.http import require_POST
+from django.utils.decorators import method_decorator
 from courses.models import Course, Module, Task, TestCase, Enrollment
-from .forms import DashboardLoginForm, CourseForm, ModuleForm, TaskForm, TestCaseForm, TestCaseFormSet
+from .forms import (
+    DashboardLoginForm,
+    CourseForm,
+    ModuleForm,
+    TaskForm,
+    TaskCreateForm,
+    TestCaseForm,
+    TestCaseFormSet,
+)
 
 
 class StaffRequiredMixin:
@@ -93,6 +107,33 @@ class ModuleDetailView(StaffRequiredMixin, DetailView):
 
     def get_queryset(self):
         return Module.objects.select_related('course').prefetch_related('tasks')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['module_tasks'] = self.object.tasks.all().order_by('order')
+        return context
+
+
+@method_decorator(require_POST, name='dispatch')
+class ModuleTasksReorderView(StaffRequiredMixin, View):
+    def post(self, request, pk):
+        module = get_object_or_404(Module, pk=pk)
+        try:
+            payload = json.loads(request.body.decode() or '{}')
+        except json.JSONDecodeError:
+            return HttpResponseBadRequest('Invalid JSON')
+        ids = payload.get('order')
+        if not isinstance(ids, list) or not ids:
+            return JsonResponse({'ok': False, 'error': 'order must be a non-empty list'}, status=400)
+        if len(ids) != len(set(ids)):
+            return JsonResponse({'ok': False, 'error': 'duplicate task ids'}, status=400)
+        expected = set(module.tasks.values_list('id', flat=True))
+        if set(ids) != expected:
+            return JsonResponse({'ok': False, 'error': 'task list does not match module'}, status=400)
+        with transaction.atomic():
+            for index, tid in enumerate(ids, start=1):
+                Task.objects.filter(pk=tid, module_id=module.pk).update(order=index)
+        return JsonResponse({'ok': True})
 
 
 class ModuleUpdateView(StaffRequiredMixin, UpdateView):
@@ -217,7 +258,7 @@ class TestCaseDeleteView(StaffRequiredMixin, DeleteView):
 
 class TaskCreateView(StaffRequiredMixin, CreateView):
     model = Task
-    form_class = TaskForm
+    form_class = TaskCreateForm
     template_name = 'customadmin/task_form.html'
 
     def get_module(self):
@@ -249,7 +290,12 @@ class TaskCreateView(StaffRequiredMixin, CreateView):
             if form.is_valid():
                 if testcase_formset.is_valid():
                     with transaction.atomic():
+                        max_order = module.tasks.aggregate(m=Max('order'))['m'] or 0
+                        next_order = max_order + 1
                         form.instance.module = module
+                        form.instance.order = next_order
+                        form.instance.title = f'task{next_order}'
+                        form.instance.description = 'description'
                         self.object = form.save()
                         testcase_formset.instance = self.object
                         testcase_formset.save()

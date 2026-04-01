@@ -80,19 +80,34 @@ class CourseForm(forms.ModelForm):
 class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
-        fields = ['title', 'description', 'task_text', 'order', 'show_count']
+        fields = ['title', 'description', 'task_text', 'show_count']
         widgets = {
             'title': forms.TextInput(attrs={'class': 'form-control'}),
             'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'task_text': forms.Textarea(attrs={'class': 'form-control', 'rows': 10}),
-            'order': forms.NumberInput(attrs={'class': 'form-control'}),
             'show_count': forms.NumberInput(attrs={'class': 'form-control'}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not self.instance.pk:  # Если это создание новой задачи
+        if not self.instance.pk:
             self.fields['show_count'].initial = 2
+
+
+class TaskCreateForm(forms.ModelForm):
+    """Создание задачи: только условие и show_count; title/description/order выставляются в view."""
+
+    class Meta:
+        model = Task
+        fields = ['task_text', 'show_count']
+        widgets = {
+            'task_text': forms.Textarea(attrs={'class': 'form-control', 'rows': 10}),
+            'show_count': forms.NumberInput(attrs={'class': 'form-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['show_count'].initial = 2
 
 
 class ModuleForm(forms.ModelForm):
