@@ -198,29 +198,17 @@
             font-size: 16px;
         }
         .task-sort-item {
-            display: flex;
-            align-items: stretch;
-            gap: 6px;
-        }
-        .task-drag-handle {
             cursor: grab;
             user-select: none;
-            color: #a0aec0;
-            font-size: 20px;
-            line-height: 1;
-            padding: 8px 4px;
-            display: flex;
-            align-items: center;
-            border-radius: 8px;
-            background: #edf2f7;
-            flex-shrink: 0;
+            border-radius: 10px;
+            touch-action: none;
         }
-        .task-drag-handle:active {
+        .task-sort-item:active {
             cursor: grabbing;
         }
-        .task-sort-item .task-card {
-            flex: 1;
-            min-width: 0;
+        .sortable-chosen .task-card {
+            border-color: #667eea;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.35);
         }
         .sortable-ghost {
             opacity: 0.45;
@@ -265,12 +253,11 @@
 
             <div style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #e2e8f0;">
                 <h3 style="color: #2d3748; font-size: 20px; font-weight: 600; margin-bottom: 8px;">Tasks</h3>
-                <p style="color: #718096; font-size: 14px; margin-bottom: 16px;">Тяните за полоску слева, чтобы изменить порядок.</p>
+                <p style="color: #718096; font-size: 14px; margin-bottom: 16px;">Зажмите карточку (~0,2 с) и перетащите, чтобы поменять местами (как 2 и 3 на схеме). Быстрый клик по карточке открывает задачу.</p>
                 {% csrf_token %}
                 <div id="task-sortable" class="task-cards-container">
                     {% for task in module_tasks %}
                     <div class="task-sort-item" data-task-id="{{ task.pk }}">
-                        <span class="task-drag-handle" title="Перетащить">⠿</span>
                         <a href="{% url 'customadmin:task_detail' task.pk %}" class="task-card">
                             <div class="task-card-number">{{ forloop.counter }}</div>
                             <div class="task-card-icon">&gt;_</div>
@@ -304,9 +291,12 @@
             new Sortable(el, {
                 animation: 150,
                 draggable: '.task-sort-item',
-                handle: '.task-drag-handle',
+                delay: 200,
+                delayOnTouchOnly: false,
                 ghostClass: 'sortable-ghost',
-                onEnd: function () {
+                chosenClass: 'sortable-chosen',
+                onEnd: function (evt) {
+                    if (evt.oldIndex === evt.newIndex) return;
                     var items = el.querySelectorAll('.task-sort-item[data-task-id]');
                     var order = [];
                     items.forEach(function (row) {
